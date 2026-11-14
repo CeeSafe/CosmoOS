@@ -3798,3 +3798,10 @@ See the [history index](README.md).
     with a seam in `sched_wake`; `tools/wake-moved-probe.py`.
     `sched_migrate_result_name` moved to the same file: no C added.
   - Report: `docs/audit/2026-11-14-wake-moved-report.md`.
+- **v1.1.1: the landing terminal released (2026-11-14).**
+  - v1.1.1-rc1 and v1.1.1 tagged on `4e7b3cc6` (#523's merge), carrying
+    #520 and #521; the Parallels VM upgraded v1.1.0 -> rc1 -> v1.1.1, chose
+    root's password at the rc's first boot and logged in
+    (`docs/guide/platforms.md`).
+  - As for v1.1.0, the release run's package-repository job failed for want
+    of its key (BUILD-10); a dispatch of `repository.yml` published serial 25.

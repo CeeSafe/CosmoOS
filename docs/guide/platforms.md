@@ -226,6 +226,24 @@ pool to format 15 and ended the rollback to v1.0.14. Then `cosmo-upgrade
 `be-v1.1.0-rc2`, no file changed), a reboot to `build v1.1.0`, the root
 checked clean, `pkg update` read serial 24, and ssh answered.
 
+**v1.1.1-rc1 and v1.1.1, 2026-11-14.** "CosmoOS", running v1.1.0, took
+-rc1 with its own `cosmo-upgrade`, the set served from the Mac: boot
+environment `be-v1.1.0`, 6 files replaced and 7 added on the root. It
+rebooted to `build v1.1.1-rc1`, the root checked with 0 findings, and
+the console asked for root's password (`root has no password yet: choose
+one now`); `passwd` changed it after its two `can't lock` warnings
+(USR-10). The login screen named the release and the address; a wrong
+password gave `Login incorrect` and the login screen again, the right one
+a shell and the welcome screen, drawn in colour on the window, with the
+release, 4 CPUs, 4027 MiB and the address. `/etc/shadow` was mode 600,
+`--status` was clean, `pkg update && pkg upgrade` read serial 24,
+`dmesg` held no panic and no error but the xhci line above, and ssh
+answered with `net cred` privileges. Then `cosmo-upgrade --fetch v1.1.1`
+from the Pages repository (boot environment `be-v1.1.1-rc1`, no file
+changed), a reboot to `build v1.1.1` and straight to the login screen,
+no password asked for again, the root checked clean, `pkg update` read
+serial 25, and ssh answered.
+
 The details, and why, are in
 [`docs/audit/2026-10-13-acpi-discovery-report.md`](../audit/2026-10-13-acpi-discovery-report.md)
 and [`docs/audit/2026-10-13-parallels-devices-report.md`](../audit/2026-10-13-parallels-devices-report.md).
