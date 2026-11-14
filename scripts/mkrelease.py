@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mkrelease.py ARCH DEST IMAGE LOADER KERNEL ARCHIVE MANIFEST CMDLINE UPGRADE VERIFY FETCH KEY PKGKEY BUILD_ID
+"""mkrelease.py ARCH DEST IMAGE QCOW2 VMDK LOADER KERNEL ARCHIVE MANIFEST CMDLINE UPGRADE VERIFY FETCH KEY PKGKEY BUILD_ID
 
 Collect one architecture's release set (roadmap M6; docs/development.md,
 "Releases") into DEST under the names the GitHub release carries. DEST is
@@ -8,6 +8,9 @@ created if missing; a DEST that holds anything but an earlier release set
 RELEASE_DIR deletes nothing:
 
     cosmoos-ARCH.img           the signed live image (GPT, ESP)
+    cosmoos-ARCH.qcow2         the same image as QCOW2 (QEMU, UTM, KVM
+                               clouds) and as a one-file VMDK (VMware,
+    cosmoos-ARCH.vmdk          VirtualBox): scripts/mkvmimages.py
     cosmoos-ARCH-BOOTX64.EFI   the UEFI loader (BOOTAA64.EFI on AArch64)
     cosmoos-ARCH-kernel.elf    \\cosmo\\kernel.elf
     cosmoos-ARCH-boot.tar      \\cosmo\\boot.tar
@@ -60,9 +63,9 @@ def package_version(build_id):
 
 
 def main():
-    if len(sys.argv) != 15:
+    if len(sys.argv) != 17:
         sys.exit(__doc__)
-    (arch, dest, image, loader, kernel, archive, manifest, cmdline, upgrade, verify, fetch, key, pkgkey,
+    (arch, dest, image, qcow2, vmdk, loader, kernel, archive, manifest, cmdline, upgrade, verify, fetch, key, pkgkey,
      build_id) = sys.argv[1:]
     os.makedirs(dest, exist_ok=True)
     stray = [f for f in os.listdir(dest) if not (f.startswith("cosmoos-") or f in ("SHA256SUMS", "SHA256SUMS.sig"))]
@@ -73,6 +76,8 @@ def main():
         os.remove(os.path.join(dest, f))   # the earlier set: no name of it may outlive this one
     files = [
         (image, f"cosmoos-{arch}.img"),
+        (qcow2, f"cosmoos-{arch}.qcow2"),
+        (vmdk, f"cosmoos-{arch}.vmdk"),
         (loader, f"cosmoos-{arch}-{os.path.basename(loader)}"),
         (kernel, f"cosmoos-{arch}-kernel.elf"),
         (archive, f"cosmoos-{arch}-boot.tar"),

@@ -33,6 +33,8 @@
 #               the loader's GetRNG call says whether the request reached
 #               QEMU and was answered (docs/testing/flakes.md, "The kernel
 #               stopped in the firmware's RNG call"; tests/boot/install_test.py)
+#   QEMU_IMAGE_FORMAT  the boot disk's format (default raw; qcow2 and vmdk
+#               boot the release set's other images: make test-images)
 #   OVMF_CODE   firmware image override
 #
 # The isa-debug-exit device lets the kernel terminate QEMU with an exit
@@ -328,7 +330,7 @@ if [ "$arch" = aarch64 ]; then
         -m "${QEMU_MEM:-256M}" \
         -drive if=pflash,format=raw,readonly=on,file="$padded" \
         $test_devs \
-        -drive if=none,id=boot,format=raw${boot_ro},file="$image" \
+        -drive if=none,id=boot,format=${QEMU_IMAGE_FORMAT:-raw}${boot_ro},file="$image" \
         -device virtio-blk-pci,drive=boot \
         $nvme_devs \
         $rng_dev $trace \
@@ -362,7 +364,7 @@ exec ${QEMU_WRAP:-} qemu-system-x86_64 \
     -smp "${QEMU_SMP:-4}" \
     -m "${QEMU_MEM:-256M}" \
     -drive if=pflash,format=raw,readonly=on,file="$firmware" \
-    -drive format=raw,file="$image" \
+    -drive format=${QEMU_IMAGE_FORMAT:-raw},file="$image" \
     $test_devs \
     $nvme_devs \
     $rng_dev $trace \

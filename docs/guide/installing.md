@@ -26,8 +26,10 @@ brew install qemu
 
 From the release page, download into an empty directory the files for
 your architecture -- `cosmoos-x86_64.img` or `cosmoos-aarch64.img` is the
-one you need; the loader, kernel, boot archive, command line and manifest
-beside it are the same files the image holds, and `cosmo-upgrade` is for
+one you need for QEMU; the `.qcow2` and `.vmdk` beside it are the same
+image for hypervisors that take those formats; the loader, kernel, boot
+archive, command line and manifest are the same files the image holds,
+and `cosmo-upgrade` is for
 [upgrading](upgrading.md) an installed system -- and `SHA256SUMS`. Every
 command in this guide runs in that directory. Check what you downloaded:
 

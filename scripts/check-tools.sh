@@ -26,6 +26,7 @@ echo "image and test tools:"
 need mformat "install mtools"
 need mcopy "install mtools"
 need qemu-system-x86_64 "install qemu"
+need qemu-img "install qemu (qemu-utils on Debian): the release set's QCOW2 and VMDK"
 need "$python" "install python3"
 
 echo "CeeSafe:"
