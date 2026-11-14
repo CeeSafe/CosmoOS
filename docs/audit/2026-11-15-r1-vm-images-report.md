@@ -92,7 +92,33 @@ shell fails `Exec format error`, `cosmo-sh` running no `#!` script
 
 ## Validation
 
-FILLED IN WHEN THE MATRIX ENDS.
+On the other machine (`docs/development.md`, "Running the matrix": the CI
+image, one container of 4 CPUs and 6 GiB), 2026-11-15, both architectures
+one after the other, on `b8f36309` (this PR's code; the later commits are
+documents). AArch64: `matrix: PASS`. x86-64: `matrix: FAIL` on
+`test-chaos` alone, out of time in the four-CPU slow mode (below).
+
+| Step | x86-64 | AArch64 |
+|---|---|---|
+| debug, release, chaos and harness-retry builds, `make cee-check` | PASS | PASS |
+| `make host-test`, `make fuzz` | PASS | PASS |
+| `make analyze` | clean (15 baselined, 0 unexpected, 0 stale) | clean (15 baselined, 0 unexpected, 0 stale) |
+| debug `make test`, `QEMU_SMP=1` | PASS in 242.6 s | PASS in 279.0 s |
+| debug `make test`, `QEMU_SMP=2` | PASS in 238.6 s | PASS in 288.0 s |
+| debug `make test`, `QEMU_SMP=4` | PASS in 243.9 s | PASS in 303.2 s |
+| `make test-smp2` | PASS in 241.0 s | PASS in 289.5 s |
+| `make test-chaos` | FAIL after 304.5 s (timed out); run again: PASS in 246.1 s | PASS in 305.4 s |
+| `make test-harness-retry` | PASS in 244.2 s | PASS in 299.8 s |
+| `make BUILD=release test` | PASS in 20.2 s | PASS in 24.2 s |
+
+**The timed-out boot.** `timed out after 300s`, with `self-test
+cosmofs-replay took 54117 ms (budget 40000 ms)` and `cosmofs-snap-reserved
+took 8905 ms (budget 8000 ms)`; no self-test failed. That is the slow mode
+of four-CPU x86-64 debug boots on that machine (`docs/testing/flakes.md`,
+2026-11-14; backlog TEST-28): `cosmofs-replay` at 53 to 56 s instead of 30
+to 36. The step run again took the fast mode (`cosmofs-replay` 29.6 s).
+This PR compiles nothing new into a kernel or a program. No budget was
+changed.
 
 ## Limits
 
