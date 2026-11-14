@@ -3805,3 +3805,12 @@ See the [history index](README.md).
     (`docs/guide/platforms.md`).
   - As for v1.1.0, the release run's package-repository job failed for want
     of its key (BUILD-10); a dispatch of `repository.yml` published serial 25.
+- **R1, first PR: the release's QCOW2 and VMDK (2026-11-15, roadmap 1.3).**
+  - `scripts/mkvmimages.py` (qemu-img; the VMDK's content id from the
+    image's SHA-256, so the set stays reproducible), `make vm-images`, both
+    in `make release`'s set; `QEMU_IMAGE_FORMAT`; `make test-images` checks
+    each holds the image's bytes and boots it to the live shell (CI's
+    `install` job). The CI image gains `qemu-utils`.
+  - A prototype ISO of v1.1.1's boot partition booted on QEMU and on
+    Parallels; backlog DRV-19 and USR-11 found there.
+  - Report: `docs/audit/2026-11-15-r1-vm-images-report.md`.
