@@ -172,6 +172,7 @@ KERNEL_GENERIC_SRCS := \
 	kernel/block/blk.c \
 	kernel/block/blk_floor.c \
 	kernel/block/blkserial.c \
+	kernel/block/bootvol.c \
 	kernel/block/gpt.c \
 	kernel/ceesafe/ceesafe_rt_core.c \
 	kernel/ceesafe/ceesafe_panic.c \

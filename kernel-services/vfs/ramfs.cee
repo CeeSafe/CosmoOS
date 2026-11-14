@@ -1212,6 +1212,10 @@ unsafe fn populateBoot() {
         // everything else is /boot. usr/ since the scp-sftp unit: /usr/libexec/sftp-server, where dropbear runs it,
         // which /boot/usr/... was not. lib/ and usr/lib/ since 1.1 P4: shared objects, 0755 as on Linux, the dynamic
         // linker among them (an interpreter needs the x bit).
+        // The installer ISO's boot volume is a block device (bootvol.cee), not a file of the live root.
+        if (startsWith(name, "bootvol/\0")) {
+            continue;
+        }
         var mode = MODE_FILE;
         if (strcmp(name, "init\0".ptr as *CChar) == 0) {
             compose(mut path, "/boot/", name);

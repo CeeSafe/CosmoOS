@@ -11,7 +11,7 @@
 // it. Each partition holds a reference on its disk until it is released. A partition is a C object this file defines
 // (CeeSafe's ADR 0042), its blkdev first: the block layer reaches it through the blkdev's `priv`.
 
-@header("kernel/blk.h", "kernel/gpt.h", "kernel/part.h", "kernel/thread.h", "kernel/wait.h")
+@header("kernel/blk.h", "kernel/bootvol.h", "kernel/gpt.h", "kernel/part.h", "kernel/thread.h", "kernel/wait.h")
 extern "C" {
     struct device;
     struct bio_vec;
@@ -71,6 +71,7 @@ extern "C" {
     fn bio_complete(b: *mut bio, status: i32);
     fn blk_read(bd: *mut blkdev, sector: u64, nsectors: u32, buf: *mut void) -> i32;
     fn blk_nth(i: u32) -> *mut blkdev;
+    fn bootvol_register();
     fn gpt_parse(
         ss: u32,
         n: u64,
@@ -571,10 +572,12 @@ unsafe fn scan(disk: *mut blkdev, nparts: *mut u32) -> i32 {
     return rc;
 }
 
-/// part.h's blk_part_scan_all: scan every registered disk.
+/// part.h's blk_part_scan_all: scan every registered disk. The boot archive's boot volume, if it has one, registers
+/// first (bootvol.cee): the drivers' disks are in by now, and the boot volume is one more.
 /// Safety: blk_nth hands back a referenced blkdev or null; each is put once.
 @export("blk_part_scan_all")
 fn scanAll() {
+    unsafe { bootvol_register(); }
     // Partitions are appended to the registry as they register and are skipped here, so walking by position while
     // the set grows is safe.
     var i: u32 = 0;
