@@ -5695,6 +5695,16 @@ watchdog's line and `blk-irq-budget` passing (tick gaps of 7 and 10 ms);
 two-CPU boots took 28.6 to 29.7 s; `lockdep-graph-bench` was 9.0 to 9.4 s
 in all three four-CPU boots.
 
+A third sighting on CI, the bump's PR #526, run 43670269636
+(`b5a60600`), job `entropy boots (x86_64)`, four CPUs: the noentropy and
+cpurng boots passed (`cosmofs-replay` 36896 and 23730 ms, 214505 and
+169676 ms of self-tests) and the devrng boot failed after 273.7 s with
+`self-test cosmofs-replay took 41326 ms (budget 40000 ms)` and the
+watchdog's line (221627 ms; `blk-irq-budget` passed, its longest tick gap
+8 ms). The job's three boots are one kernel on one runner (their command
+lines and entropy devices differ), so the spread between them is not the
+runner's speed alone.
+
 What is not known: what the slow mode is (the guest's scheduling at four CPUs, or QEMU's), and since when. No
 budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
 
