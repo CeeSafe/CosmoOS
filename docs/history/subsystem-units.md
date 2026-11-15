@@ -3817,8 +3817,8 @@ See the [history index](README.md).
   - A prototype ISO of v1.1.1's boot partition booted on QEMU and on
     Parallels; backlog DRV-19 and USR-11 found there.
   - Report: `docs/audit/2026-11-15-r1-vm-images-report.md`.
-- **ceesafec pinned at 0.47.1 (2026-11-15).**
+- **ceesafec pinned at 0.48.1 (2026-11-15).**
   - From 0.37.0, at the owner's request, before R1's ISO PR adds CeeSafe
     kernel code. No `.cee` source changed; the x86-64 release kernel's
     text is 1408 bytes smaller.
-  - Report: `docs/audit/2026-11-15-ceesafec-0471-report.md`.
+  - Report: `docs/audit/2026-11-15-ceesafec-0481-report.md`.
