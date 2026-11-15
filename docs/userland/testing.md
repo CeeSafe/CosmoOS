@@ -268,6 +268,20 @@ A boot of a QCOW2 read as raw stops in the firmware, which finds no
 partition table (checked by hand: `test-images: FAIL: qcow2: the firmware
 did not hand over`).
 
+The installer ISO (`make iso`; docs/boot/design.md, "The installer ISO")
+boots as a CD (`QEMU_BOOT_MEDIA=cdrom`: the default CD drive on q35, a
+SCSI CD on virt) beside a blank 256 MiB virtio disk. The log must show
+the loader's `boot volume: no GPT partition` (it was read from the CD),
+the kernel's `bootvol:` line with the boot partition's sector count, and
+the live root staying; `cosmo-install --list` must list `bootvol`
+read-only with the boot flag, and the blank disk; `cosmo-install` onto
+the blank disk must succeed. On the host, the target's partition 1 must
+be the live image's ESP byte for byte, and its partition 2's unique GUID
+the one the installer printed. Then the target boots alone: init switches
+to its root (`root=boot-disk`), the first boot asks for root's password
+(the test answers with one made per run), the login takes it, `uname -v`
+names the build, and `exit` ends the boot with the success code.
+
 ## `make test-upgrade` (`tests/boot/upgrade_test.py`)
 
 Shell completeness S7's acceptance: an installed v1.0.3 system is

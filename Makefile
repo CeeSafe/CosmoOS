@@ -203,11 +203,11 @@ release:
 
 UPGRADE_ELF = $(call prog_elf,cosmo-upgrade)
 VERIFY_ELF = $(call prog_elf,cosmo-verify)
-release-set: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
+release-set: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
 		$(COSMO_FETCH_ELF) \
 		$(ROOT)/scripts/mkrelease.py $(ROOT)/tools/pkgbuild.py $(ROOT)/scripts/modsign.py
 	$(call log,RELEASE,$(RELEASE_DIR))
-	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
 		$(BOOT_ARCHIVE) $(MANIFEST) $(CMDLINE_FILE) $(UPGRADE_ELF) $(VERIFY_ELF) $(COSMO_FETCH_ELF) $(MODSIGN_KEY) $(PKGSIGN_KEY) \
 		$(BUILD_ID)
 

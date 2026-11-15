@@ -177,6 +177,48 @@ installer finds the ESP to copy (roadmap M2), and the kernel registers
 it as a block device like any other partition (`ahci0p0p1` on q35,
 `vdb1` on virt; `docs/kernel/device/design.md`, "Partitions").
 
+## The installer ISO
+
+`make iso` writes `out/<arch>-<build>/cosmoos-<arch>.iso` (roadmap 1.3
+R1), for machines that install from a CD rather than a disk image. The
+kernel has no CD driver, so what the firmware reads off the disc is all
+the system gets, and the ISO is built around that:
+
+- **The boot volume rides in the boot archive.** `scripts/mkiso.py
+  bootvol` takes partition 1 of the live image (`make image`), the ESP
+  that `cosmo-install` copies from a disk boot, and writes it as
+  `bootvol/esp.img` (its bytes up to the last sector that is not zero)
+  and `bootvol/sectors` (its whole length in 512-byte sectors). The ISO's
+  archive is the live archive plus those two files; the manifest signs
+  the kernel, that archive and the command line, so verified boot covers
+  the boot volume as it covers `init`.
+- **The kernel presents it as a disk.** `kernel/block/bootvol.cee`
+  (CeeSafe) registers the two files as `bootvol`, a read-only block
+  device of `sectors` sectors that reads zeros past the stored bytes. It
+  runs at the start of the boot-time partition scan, and registers
+  nothing when the archive has no `bootvol/` files (every disk boot).
+  blkctl reports it with the boot flag, so `cosmo-install --list` shows
+  it as the boot device and the installer copies it unchanged; the
+  installer and the loader have no ISO case. ramfs skips `bootvol/`
+  entries, so the image is not also unpacked into the live root.
+- **The disc.** `scripts/mkiso.py iso` writes the least ISO 9660 the
+  firmware needs: a primary volume descriptor, an El Torito boot record,
+  the terminator, a catalog, an empty root directory and its path
+  tables, then partition 1 of a GPT image `mkimage.sh` builds with the
+  ISO's archive and manifest. The catalog's one entry is UEFI (platform
+  0xEF), no-emulation, and points at that partition, the last thing on
+  the disc. Its 16-bit sector count cannot describe a 64 MiB image, so it
+  is 1, which EDK2 reads as "to the end of the volume". Every date is ISO
+  9660's "not specified", so the ISO is a function of its inputs.
+
+On a CD boot the loader finds no GPT partition behind its device and
+says so (`boot volume: no GPT partition`); the command line's
+`root=boot-disk` then has no disk to switch to, and the system stays on
+its live root, from which `cosmo-install DISK` installs. The installed
+system is the live image's, byte for byte in its boot partition, and
+boots without the disc. `make test-images` proves the whole path in
+QEMU (docs/userland/testing.md, "make test-images").
+
 ## The serial console
 
 The kernel cannot find a serial port before it has a console to report

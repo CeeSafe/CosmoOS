@@ -271,6 +271,16 @@ self-tests unbind and rebind disks and count when each is released, and
 a scan holding one would change the count. A USB disk that arrives late
 is still scanned only when asked (`/dev/blkctl` RESCAN; backlog BLK-5).
 
+The boot scan first registers the boot volume when the boot archive
+carries one (`bootvol_register`, `kernel/block/bootvol.cee`; an installer
+ISO's archive does, a disk boot's does not: docs/boot/design.md, "The
+installer ISO"). `bootvol` is a read-only device of 512-byte sectors over
+the archive's `bootvol/esp.img`, which reads zeros past the stored bytes
+and completes a write with `-EROFS` (the block layer refuses one first);
+it holds a FAT file system and no GPT, so the scan finds no partitions on
+it. It is never unregistered. `bootvol_is` names it to blkctl, which sets
+the boot flag on it as it does on the partition the loader booted from.
+
 ### Entropy (`kernel/include/kernel/random.h`)
 
 A single pool: `uint8_t state[64]`, a 64-bit counter, an estimate of
