@@ -5730,6 +5730,27 @@ machine: `test-smp2` three times each, 28.5 to 29.5 s (base) and 28.8 to
 all ten passed. So two CPUs are not proof against the slow mode: one of
 the twelve two-CPU boots of these two trees.
 
+Two more on CI, the same day, four CPUs. Main's run 43682912998 for
+#526's merge (`af5a8b66`), job `build, boot, analyze (x86_64, boots)`:
+the first boot failed after 277.9 s, `cosmofs-replay` 42043 ms and the
+watchdog's line (226140 ms of self-tests, `blk-irq-budget` passing, gap
+12 ms); the job rerun, attempt 2 passed. #527's run 43683617004
+(`7cfdcfb2`), the same job: `make test` passed (28237 ms, 180381 ms) and
+`test-guard` failed after 269.7 s (40605 ms and the watchdog's line,
+219019 ms; gap 13 ms).
+
+Read across runs, CI's x86-64 boots of one job fall into two groups
+about 1.6 times apart, as here: run 43611799799 (`4e7b3cc6`, 0.37.0),
+job `entropy boots`, 13.3 to 13.6 s and 21.0 to 21.8 s; 43675392749
+(`a76d5115`, 0.37.0), 16.2 to 17.6 and 26.5 to 26.8 s; 43682912998
+(0.48.1), 11.3 to 11.9 and 18.6 to 19.2 s. Which boot falls in which
+group changes between runs. One pattern, five runs and not a mechanism:
+the noentropy boot (no RNG device, a CPU without RDRAND) was in the fast
+group and the cpurng boot (RDRAND) in the slow one in both 0.37.0 runs
+(13550 and 16190 ms against 21838 and 26754), and the other way round in
+all three under 0.48.1 (36896, 37153 and 18791 against 23730, 23093 and
+11335). The default `make test` CPU has no RDRAND either.
+
 What is not known: what the slow mode is (the guest's scheduling, at four CPUs most often, or QEMU's), and since when. No
 budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
 

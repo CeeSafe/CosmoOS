@@ -205,7 +205,10 @@ the system gets, and the ISO is built around that:
   firmware needs: a primary volume descriptor, an El Torito boot record,
   the terminator, a catalog, an empty root directory and its path
   tables, then partition 1 of a GPT image `mkimage.sh` builds with the
-  ISO's archive and manifest. The catalog's one entry is UEFI (platform
+  ISO's archive and manifest. That partition is as large as its files
+  need, 64 MiB at least (`MKIMAGE_ESP=fit`): it holds the installed ESP
+  inside the archive, which a debug build's kernel and archive take past
+  64 MiB. The catalog's one entry is UEFI (platform
   0xEF), no-emulation, and points at that partition, the last thing on
   the disc. Its 16-bit sector count cannot describe a 64 MiB image, so it
   is 1, which EDK2 reads as "to the end of the volume". Every date is ISO

@@ -110,6 +110,33 @@ requires one `bootvol_register` per `blk_part_scan_all`. With
 host-test` passed on the Mac. `uapi/cosmo/blkctl.h`'s comment on the boot
 flag names the boot volume.
 
+**Found by CI and review on the PR (#527, run 43683617004).**
+- *A debug ISO did not fit.* `make reproducible`, which builds the
+  release set in a debug build, failed on both architectures with
+  mtools' `Disk full` writing the ISO's disk: its ESP holds the kernel,
+  the archive and, inside the archive, the installed ESP (35 MB stored in
+  a debug build), over the 64 MiB `mkimage.sh` makes. Every proof above
+  was of release builds. `mkimage.sh` now takes `MKIMAGE_ESP=fit`, which
+  the ISO's disk alone uses: the files, a sixteenth more and 4 MiB, 64 MiB
+  at least. The debug ISOs are 84,981,760 bytes (x86-64) and 86,030,336
+  (AArch64); the release ISOs stay 67,155,968; the live image's ESP, the
+  one installed, stays 64 MiB. `make ARCH=aarch64 reproducible` on the
+  Mac: `reproducible: yes`, 28 files the same, the release set's
+  `SHA256SUMS` (the ISO's line among them) among them.
+- *`cee-share` failed* on the boot flag's comment, two more lines of C
+  in `kernel/`; it is one line again, and the gate passes.
+- *Greptile: the image path lost its quotes.* Moving the boot drive into
+  variables for `QEMU_BOOT_MEDIA` made `qemu-run.sh` split a path with a
+  space. The variables now hold the drive's options and devices only, and
+  the path is quoted in `-drive` as on main. Through a `QEMU_WRAP` that
+  prints each argument, a path with spaces is one argument in all four
+  cases (two machines, disk and CD); in the default disk mode, main's
+  `qemu-run.sh` and this one give QEMU the same arguments, 64 on x86-64
+  and 68 on AArch64, so the matrix's boots are unchanged by it.
+- `make BUILD=release test-images` passed again on both architectures.
+  The `x86_64, boots` job's `test-guard` boot failed in TEST-28's slow
+  mode (`cosmofs-replay` 40605 ms; flakes.md).
+
 **On Parallels Desktop** (the owner's Mac, a new AArch64 VM "CosmoOS ISO
 test" with the ISO on its SATA CD and a blank 512 MiB NVMe disk), an
 earlier build of this branch: the firmware booted the CD to the live
