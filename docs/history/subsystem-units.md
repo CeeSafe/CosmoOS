@@ -3811,6 +3811,9 @@ See the [history index](README.md).
     in `make release`'s set; `QEMU_IMAGE_FORMAT`; `make test-images` checks
     each holds the image's bytes and boots it to the live shell (CI's
     `install` job). The CI image gains `qemu-utils`.
+  - CI found qemu-img's CID printed unpadded (one draw in sixteen has seven
+    digits): the script rewrites the descriptor's region whole, proved by
+    `tests/host/test_mkvmimages.py` with a qemu-img that forces the draw.
   - A prototype ISO of v1.1.1's boot partition booted on QEMU and on
     Parallels; backlog DRV-19 and USR-11 found there.
   - Report: `docs/audit/2026-11-15-r1-vm-images-report.md`.

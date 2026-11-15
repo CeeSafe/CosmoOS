@@ -28,7 +28,7 @@ make check-tools
 ```
 
 The script installs `clang lld llvm libclang-rt-dev make git mtools
-musl-tools qemu-system-x86 ovmf qemu-system-arm qemu-efi-aarch64 python3`
+musl-tools qemu-system-x86 ovmf qemu-system-arm qemu-efi-aarch64 qemu-utils python3`
 with apt, the same set CI installs. The build also runs the pinned CeeSafe
 compiler (`docs/build/design.md`, "CeeSafe sources"), which `make
 check-tools` asks for by version; install it with

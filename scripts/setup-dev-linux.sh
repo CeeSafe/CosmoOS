@@ -10,14 +10,14 @@ set -eu
 
 if ! command -v apt-get >/dev/null 2>&1; then
     echo "setup-dev-linux: only Debian/Ubuntu (apt) is scripted; install the equivalents of:" >&2
-    echo "  clang lld llvm libclang-rt-dev make mtools musl-tools qemu-system-x86 ovmf qemu-system-arm qemu-efi-aarch64 python3 git" >&2
+    echo "  clang lld llvm libclang-rt-dev make mtools musl-tools qemu-system-x86 ovmf qemu-system-arm qemu-efi-aarch64 qemu-utils python3 git" >&2
     exit 1
 fi
 
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
     clang lld llvm libclang-rt-dev make git \
-    mtools musl-tools qemu-system-x86 ovmf qemu-system-arm qemu-efi-aarch64 \
+    mtools musl-tools qemu-system-x86 ovmf qemu-system-arm qemu-efi-aarch64 qemu-utils \
     python3
 
 echo

@@ -12,21 +12,47 @@ which the release requires of every file of its set (`make reproducible`,
 the release workflow's two builds): QCOW2 is a pure function of its input.
 A VMDK's embedded descriptor names the file itself in its extent line, so
 it is converted under its final name, in a directory of its own beside it;
-and it carries a content id (CID) qemu-img draws at random, which this
-script replaces with the first eight hex digits of the raw image's SHA-256
-(the same length: nothing moves).
+and it carries a content id (CID) qemu-img draws at random and prints
+unpadded (`CID=%x`: one draw in sixteen has seven digits or fewer). This
+script rewrites the descriptor's whole region, the sectors the sparse
+header names, with the CID set to the first eight hex digits of the raw
+image's SHA-256 and the text padded with zeros to the region's end, so
+nothing qemu-img drew is left in the file.
 """
 import hashlib
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 
-# The descriptor is text in the sectors after the sparse header (QEMU's
-# vmdk.c writes it at sector 1); 64 KiB is far more than it takes.
-DESC_SPAN = 64 * 1024
+SECTOR = 512
+
+
+def set_cid(f, cid, name):
+    """Rewrite the embedded descriptor of the monolithicSparse VMDK open as
+    `f` with CID `cid` (8 hex digits); `name` is the file's, for messages
+    and the extent line's check."""
+    head = f.read(SECTOR)
+    magic, _version, _flags, _capacity, _grain, desc_offset, desc_size = struct.unpack_from("<4sIIQQQQ", head)
+    if magic != b"KDMV" or desc_offset == 0 or desc_size == 0:
+        sys.exit(f"mkvmimages: {name}: not a sparse VMDK with an embedded descriptor")
+    f.seek(desc_offset * SECTOR)
+    region = f.read(desc_size * SECTOR)
+    text = region.split(b"\0", 1)[0]
+    if any(region[len(text):]):
+        sys.exit(f"mkvmimages: {name}: the descriptor region holds bytes after its text")
+    new, n = re.subn(rb"(?m)^CID=[0-9a-f]{1,8}$", b"CID=" + cid, text)
+    if n != 1:
+        sys.exit(f"mkvmimages: {name}: no single CID line in the embedded descriptor")
+    if b'"' + os.path.basename(name).encode() + b'"' not in new:
+        sys.exit(f"mkvmimages: {name}: the extent line does not name the file")
+    if len(new) >= len(region):
+        sys.exit(f"mkvmimages: {name}: the descriptor does not fit its region")
+    f.seek(desc_offset * SECTOR)
+    f.write(new + bytes(len(region) - len(new)))
 
 
 def convert(raw, out, fmt, opts):
@@ -51,14 +77,7 @@ def main():
 
     tmp = convert(raw, vmdk, "vmdk", "subformat=monolithicSparse")
     with open(tmp, "r+b") as f:
-        head = f.read(DESC_SPAN)
-        m = re.search(rb"\nCID=([0-9a-f]{8})\n", head)
-        if not m:
-            sys.exit(f"mkvmimages: {vmdk}: no CID line in the embedded descriptor")
-        if b'"' + os.path.basename(vmdk).encode() + b'"' not in head:
-            sys.exit(f"mkvmimages: {vmdk}: the extent line does not name the file")
-        f.seek(m.start(1))
-        f.write(cid)
+        set_cid(f, cid, vmdk)
     os.replace(tmp, vmdk)
     shutil.rmtree(os.path.dirname(tmp))
 
