@@ -3805,8 +3805,8 @@ See the [history index](README.md).
     (`docs/guide/platforms.md`).
   - As for v1.1.0, the release run's package-repository job failed for want
     of its key (BUILD-10); a dispatch of `repository.yml` published serial 25.
-- **ceesafec pinned at 0.47.1 (2026-11-15).**
+- **ceesafec pinned at 0.48.1 (2026-11-15).**
   - From 0.37.0, at the owner's request, before R1's ISO PR adds CeeSafe
     kernel code. No `.cee` source changed; the x86-64 release kernel's
     text is 1408 bytes smaller.
-  - Report: `docs/audit/2026-11-15-ceesafec-0471-report.md`.
+  - Report: `docs/audit/2026-11-15-ceesafec-0481-report.md`.

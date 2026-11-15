@@ -5645,7 +5645,7 @@ Over the five runs from `727b4bba` to `4e4bcc68` the x86-64 boots' self-tests su
 runner and the slow mode are not told apart by these numbers.
 
 The ceesafec 0.47.1 bump's matrix on the other machine, 2026-11-15
-(`docs/audit/2026-11-15-ceesafec-0471-report.md`): the four-CPU x86-64
+(`docs/audit/2026-11-15-ceesafec-0481-report.md`): the four-CPU x86-64
 debug boot timed out with `cosmofs-replay` at 48889 ms and the watchdog's
 line, `blk-irq-budget` failing beside it (the next completion ready 0
 times of 741, a tick gap of 944 ms and a bystander's wait of 945 ms: the
