@@ -183,7 +183,7 @@ $(ISO_MANIFEST): $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(MODSIGN_KEY
 	$(Q)$(PYTHON) $(ROOT)/scripts/mkmanifest.py sign --key $(MODSIGN_KEY) --out $@ $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE)
 $(ISO_DISK): $(KERNEL_SHIP_ELF) $(LOADER_EFI) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(ISO_MANIFEST) $(ROOT)/scripts/mkimage.sh $(ROOT)/scripts/mkgpt.py
 	$(call log,IMAGE,$@)
-	$(Q)$(ROOT)/scripts/mkimage.sh $@ $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(ISO_MANIFEST)
+	$(Q)MKIMAGE_ESP=fit $(ROOT)/scripts/mkimage.sh $@ $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(ISO_MANIFEST)
 $(ISO_IMAGE): $(ISO_DISK) $(ROOT)/scripts/mkiso.py
 	$(call log,ISO,$@)
 	$(Q)$(PYTHON) $(ROOT)/scripts/mkiso.py iso $(ISO_DISK) $@ >/dev/null

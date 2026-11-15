@@ -78,11 +78,17 @@ if [ "${QEMU_DISKS:-all}" = boot ]; then
 fi
 # The boot image as a disk (the default) or, for the installer ISO, a CD:
 # what each machine's firmware boots from (q35's AHCI, virt's virtio-SCSI).
-x86_boot="-drive format=${QEMU_IMAGE_FORMAT:-raw},file=$image"
-a64_boot="-drive if=none,id=boot,format=${QEMU_IMAGE_FORMAT:-raw}${boot_ro},file=$image -device virtio-blk-pci,drive=boot"
+# Only the drive's options and the devices are here, never the path: the
+# path stays in one quoted word, -drive "...,file=$image".
+x86_drive="format=${QEMU_IMAGE_FORMAT:-raw}"
+a64_drive="if=none,id=boot,format=${QEMU_IMAGE_FORMAT:-raw}${boot_ro}"
+a64_bus=""
+a64_dev="-device virtio-blk-pci,drive=boot"
 if [ "${QEMU_BOOT_MEDIA:-disk}" = cdrom ]; then
-    x86_boot="-drive media=cdrom,readonly=on,format=raw,file=$image"
-    a64_boot="-device virtio-scsi-pci,id=scsi0 -drive if=none,id=boot,media=cdrom,readonly=on,format=raw,file=$image -device scsi-cd,drive=boot,bus=scsi0.0"
+    x86_drive="media=cdrom,readonly=on,format=raw"
+    a64_drive="if=none,id=boot,media=cdrom,readonly=on,format=raw"
+    a64_bus="-device virtio-scsi-pci,id=scsi0"
+    a64_dev="-device scsi-cd,drive=boot,bus=scsi0.0"
 fi
 testdisk=${QEMU_TESTDISK:-$outdir/testdisk.img}
 test_devs=""
@@ -341,7 +347,9 @@ if [ "$arch" = aarch64 ]; then
         -m "${QEMU_MEM:-256M}" \
         -drive if=pflash,format=raw,readonly=on,file="$padded" \
         $test_devs \
-        $a64_boot \
+        $a64_bus \
+        -drive "$a64_drive,file=$image" \
+        $a64_dev \
         $nvme_devs \
         $rng_dev $trace \
         -device virtio-serial-pci \
@@ -374,7 +382,7 @@ exec ${QEMU_WRAP:-} qemu-system-x86_64 \
     -smp "${QEMU_SMP:-4}" \
     -m "${QEMU_MEM:-256M}" \
     -drive if=pflash,format=raw,readonly=on,file="$firmware" \
-    $x86_boot \
+    -drive "$x86_drive,file=$image" \
     $test_devs \
     $nvme_devs \
     $rng_dev $trace \

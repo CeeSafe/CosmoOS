@@ -68,9 +68,7 @@ struct cosmo_blkctl_keyed {
 /* cosmo_blkctl_dev.flags */
 #define COSMO_BLKCTL_PART     (1u << 0)   /* a partition; `disk`, `index`, `start`, `uuid`, `type` say which */
 #define COSMO_BLKCTL_RDONLY   (1u << 1)
-#define COSMO_BLKCTL_BOOT     (1u << 2)   /* the partition the loader was read from; booted from the installer
-                                             * ISO, `bootvol`, a whole device: the boot partition the boot
-                                             * archive carries (bootvol.cee) */
+#define COSMO_BLKCTL_BOOT     (1u << 2)   /* the partition the loader was read from, or the ISO's `bootvol` */
 #define COSMO_BLKCTL_MOUNTED  (1u << 3)   /* it, its disk or one of its partitions is mounted */
 #define COSMO_BLKCTL_TEST     (1u << 4)   /* a disk made for the self-tests: its serial begins "cosmo-test-" */
 

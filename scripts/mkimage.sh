@@ -19,8 +19,21 @@ cmdline=$5
 manifest=$6
 here=$(cd "$(dirname "$0")" && pwd)
 
-# 64 MiB is the smallest size mformat reliably formats as FAT32.
+# 64 MiB is the smallest size mformat reliably formats as FAT32. The boot
+# disk's ESP is that size: the installer copies it, and a debug build's
+# files fit. MKIMAGE_ESP=fit makes it as large as the files need, 64 MiB
+# at least: the installer ISO's disk (make iso), whose archive also holds
+# the installed ESP (docs/boot/design.md, "The installer ISO"). The files,
+# a sixteenth more for the FAT and the clusters' slack, and 4 MiB.
 size_mib=64
+if [ "${MKIMAGE_ESP:-}" = fit ]; then
+    bytes=0
+    for f in "$loader" "$kernel" "$archive" "$cmdline" "$manifest"; do
+        bytes=$((bytes + $(wc -c < "$f")))
+    done
+    need=$(( (bytes + bytes / 16 + 4 * 1048576 + 1048575) / 1048576 ))
+    [ "$need" -gt "$size_mib" ] && size_mib=$need
+fi
 
 esp="$out.esp.tmp"
 rm -f "$esp"
