@@ -249,6 +249,25 @@ password gets `Login incorrect` and the login again, no shell prompt
 comes meanwhile, and root's password logs in. The user guide's runner does the same for a session line
 marked `login` (`tests/guide/run_guide.py`).
 
+## `make test-images` (`tests/boot/images_test.py`)
+
+Roadmap 1.3 R1: the release set's images for other hypervisors, QCOW2
+and a one-file VMDK (`scripts/mkvmimages.py`). Release builds in CI (job
+`install`, both architectures); logs in `$(OUT)/test-images/`. For each:
+
+- on the host, `qemu-img check` finds it consistent and `qemu-img compare`
+  finds its contents those of the raw image, byte for byte;
+- a copy boots as the only disk, in its format (`QEMU_IMAGE_FORMAT`,
+  `QEMU_DISKS=boot`): the log must show the kernel's `root:
+  root=boot-disk: the boot disk has no CosmoOS root partition; the live
+  root stays` (it found the disk the loader was read from), `uname -v`
+  names the build, `cosmo-install --list` lists the boot disk at the raw
+  image's size, and `exit` ends the boot with the kernel's success code.
+
+A boot of a QCOW2 read as raw stops in the firmware, which finds no
+partition table (checked by hand: `test-images: FAIL: qcow2: the firmware
+did not hand over`).
+
 ## `make test-upgrade` (`tests/boot/upgrade_test.py`)
 
 Shell completeness S7's acceptance: an installed v1.0.3 system is

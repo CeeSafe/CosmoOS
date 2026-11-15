@@ -524,6 +524,11 @@ jobs:
       - name: Install, reboot, persist, fallback (release)
         run: make ARCH=${{ matrix.arch }} BUILD=release test-install
 
+      # Roadmap 1.3 R1: the release set's QCOW2 and VMDK hold the live
+      # image's bytes and each boots to the live shell (tests/boot/images_test.py).
+      - name: QCOW2 and VMDK images (release)
+        run: make ARCH=${{ matrix.arch }} BUILD=release test-images
+
       # Roadmap 1.2 B1 (docs/roadmap-1.2.md): snapshots of the installed
       # root from the shell. Here rather than in a job of its own: it
       # installs the same release image the step above just installed.
@@ -537,6 +542,7 @@ jobs:
           name: test-install-${{ matrix.arch }}
           path: |
             out/${{ matrix.arch }}-release/test-install/*.log
+            out/${{ matrix.arch }}-release/test-images/*.log
             out/${{ matrix.arch }}-release/test-snapshot/*.log
           if-no-files-found: ignore
 

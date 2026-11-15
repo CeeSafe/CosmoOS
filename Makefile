@@ -59,7 +59,7 @@ include $(ROOT)/build/cee.mk
 include $(ROOT)/build/toolchain.mk
 include $(ROOT)/build/rules.mk
 
-.PHONY: FORCE all kernel boot modules image run test test-entropy test-modcycle test-install test-encrypt test-encrypt-b1b4 test-snapshot test-fsck test-pci-hotplug test-mirror test-pkgtx test-be test-large test-fill test-selfhost test-upgrade test-security test-busybox test-net-login test-pkg-net test-display test-gic test-platforms test-guard test-smp2 test-crash test-crash-cee test-stackprot test-wxn test-chaos test-harness-retry analyze analysis-gate reproducible release release-set compile-commands check-tools check-secrets check-docs cee cee-check dist clean help litmus
+.PHONY: FORCE all kernel boot modules image vm-images run test test-images test-entropy test-modcycle test-install test-encrypt test-encrypt-b1b4 test-snapshot test-fsck test-pci-hotplug test-mirror test-pkgtx test-be test-large test-fill test-selfhost test-upgrade test-security test-busybox test-net-login test-pkg-net test-display test-gic test-platforms test-guard test-smp2 test-crash test-crash-cee test-stackprot test-wxn test-chaos test-harness-retry analyze analysis-gate reproducible release release-set compile-commands check-tools check-secrets check-docs cee cee-check dist clean help litmus
 .DEFAULT_GOAL := all
 
 include $(ROOT)/kernel/kernel.mk
@@ -91,6 +91,16 @@ all: $(ARCH_TEST_TARGETS) kernel boot libc userland pkg ports modules
 IMAGE := $(OUT)/cosmoos.img
 
 image: $(IMAGE)
+
+# The live image as QCOW2 and as a one-file VMDK, for the hypervisors that
+# take those (roadmap 1.3 R1; scripts/mkvmimages.py): the same bytes, made
+# by qemu-img. In the release set; make test-images boots them.
+QCOW2_IMAGE := $(OUT)/cosmoos-$(ARCH).qcow2
+VMDK_IMAGE := $(OUT)/cosmoos-$(ARCH).vmdk
+vm-images: $(QCOW2_IMAGE) $(VMDK_IMAGE)
+$(QCOW2_IMAGE) $(VMDK_IMAGE) &: $(IMAGE) $(ROOT)/scripts/mkvmimages.py
+	$(call log,VMIMAGES,$(QCOW2_IMAGE) $(VMDK_IMAGE))
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkvmimages.py $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE)
 
 # The boot archive: init plus the boot-time and test modules, in the
 # order the kernel loads them (dependencies first). See
@@ -160,11 +170,11 @@ release:
 
 UPGRADE_ELF = $(call prog_elf,cosmo-upgrade)
 VERIFY_ELF = $(call prog_elf,cosmo-verify)
-release-set: $(IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
+release-set: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
 		$(COSMO_FETCH_ELF) \
 		$(ROOT)/scripts/mkrelease.py $(ROOT)/tools/pkgbuild.py $(ROOT)/scripts/modsign.py
 	$(call log,RELEASE,$(RELEASE_DIR))
-	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
 		$(BOOT_ARCHIVE) $(MANIFEST) $(CMDLINE_FILE) $(UPGRADE_ELF) $(VERIFY_ELF) $(COSMO_FETCH_ELF) $(MODSIGN_KEY) $(PKGSIGN_KEY) \
 		$(BUILD_ID)
 
@@ -342,6 +352,15 @@ test-install: $(IMAGE)
 	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
 		$(PYTHON) $(ROOT)/tests/boot/install_test.py --image $(IMAGE) --workdir $(OUT)/test-install \
 		--timeout $(BOOT_TIMEOUT) --key $(MODSIGN_KEY)
+
+# Roadmap 1.3 R1 (tests/boot/images_test.py; docs/userland/testing.md,
+# "test-images"): the release set's QCOW2 and VMDK hold the live image's
+# bytes, and each boots as the boot disk to the live shell. (CI:
+# BUILD=release, in the install job.)
+test-images: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE)
+	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
+		$(PYTHON) $(ROOT)/tests/boot/images_test.py --image $(IMAGE) --qcow2 $(QCOW2_IMAGE) --vmdk $(VMDK_IMAGE) \
+		--workdir $(OUT)/test-images --timeout $(BOOT_TIMEOUT)
 
 # Roadmap 1.2 A1's acceptance test (tests/boot/selfhost_test.py,
 # docs/userland/testing.md, "test-selfhost"): on this build installed,
