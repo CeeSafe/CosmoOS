@@ -13,6 +13,7 @@
 
 #include <kernel/blk.h>
 #include <kernel/bootinfo.h>
+#include <kernel/bootvol.h>
 #include <kernel/cred.h>
 #include <kernel/errno.h>
 #include <kernel/kmalloc.h>
@@ -251,6 +252,15 @@ bool bootinfo_boot_partuuid(uint8_t out[16])
         return false;
     memcpy(out, g_boot, 16);
     return true;
+}
+
+/* The installer ISO's boot volume (bootvol.cee), which the C of the digest did not have: none in the sessions, so
+ * their digest is still the C's; test_bootvol names each device in turn. Nothing noted: it is not in the C. */
+static unsigned g_bootvol = NDEV;
+
+bool bootvol_is(const struct blkdev *bd)
+{
+    return dev_index(bd) == g_bootvol;
 }
 
 int blk_read(struct blkdev *bd, uint64_t sector, uint32_t nsectors, void *buf)
@@ -555,10 +565,59 @@ static void test_sessions(void)
     EXPECT(g_digest == BLKCTL_DIGEST);
 }
 
+/* LIST marks the boot volume, a whole device, the boot device, and no other: each device in turn, then none. The
+ * loader's partition is not known here (no boot PARTUUID), so the boot flag is bootvol_is's alone. */
+static void test_bootvol(void)
+{
+    EXPECT(g_ops != NULL);   /* test_sessions registered the node */
+    g_faults = false;
+    g_count = NDEV;
+    g_vanish_at = NDEV;
+    g_have_boot = false;
+    for (unsigned i = 0; i < NDEV; i++) {
+        g_mounted[i] = g_test[i] = g_parts[i] = false;
+        g_dev[i].read_only = i == 4;
+    }
+    g_cred.euid = CRED_ROOT_UID;
+    g_cred.privs = PRIV_SYS_ADMIN;
+    for (unsigned which = 0; which <= NDEV; which++) {
+        g_bootvol = which;
+        struct file f;
+        memset(&f, 0, sizeof(f));
+        EXPECT(g_ops->open(&g_node, &f) == 0);
+        struct cosmo_blkctl cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.version = COSMO_BLKCTL_VERSION;
+        cmd.op = COSMO_BLKCTL_LIST;
+        EXPECT(g_ops->write_file(&g_node, &f, 0, &cmd, sizeof(cmd)) == (int64_t)sizeof(cmd));
+        memset(g_rbuf, 0xEE, sizeof(g_rbuf));
+        int64_t n = g_ops->read_file(&g_node, &f, 0, g_rbuf, sizeof(g_rbuf));
+        size_t want = sizeof(struct cosmo_blkctl_list) + NDEV * sizeof(struct cosmo_blkctl_dev);
+        EXPECT(n == (int64_t)want);
+        struct cosmo_blkctl_list head;
+        memcpy(&head, g_rbuf, sizeof(head));
+        EXPECT(head.count == NDEV);
+        for (unsigned i = 0; i < NDEV; i++) {
+            struct cosmo_blkctl_dev d;
+            memcpy(&d, g_rbuf + sizeof(head) + i * sizeof(d), sizeof(d));
+            EXPECT(strcmp(d.name, g_names[i]) == 0);
+            EXPECT(((d.flags & COSMO_BLKCTL_BOOT) != 0) == (i == which));
+            EXPECT(((d.flags & COSMO_BLKCTL_PART) != 0) == (i == 1 || i == 2));
+            EXPECT(((d.flags & COSMO_BLKCTL_RDONLY) != 0) == (i == 4));
+        }
+        g_ops->release(&g_node, &f);
+        EXPECT(f.priv == NULL);
+        EXPECT(g_refs == 0);
+    }
+    g_bootvol = NDEV;
+    EXPECT(g_live == 0);
+}
+
 int main(void)
 {
     static const struct host_test tests[] = {
         { "blkctl_sessions", test_sessions },
+        { "blkctl_bootvol", test_bootvol },
     };
     return harness_run(tests, sizeof(tests) / sizeof(tests[0]));
 }

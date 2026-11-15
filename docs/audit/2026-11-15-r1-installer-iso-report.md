@@ -90,6 +90,26 @@ read zeros: `d.stored = 0`), the AArch64 ISO stage failed with
 live image's ESP byte for byte`; the source restored, it passed. (Run
 under 0.47.1, before the pin moved; the 0.48.1 pass is the table's.)
 
+**Found by the matrix: two host tests that did not link.** The first
+matrix of this branch (the other machine, 2026-11-15) failed `make
+host-test` on both architectures, so it booted nothing: `test_blkctl`
+links `blkctl.c`, which now calls `bootvol_is`, and `test_part` links
+`part.c`, which now calls `bootvol_register`, and neither test defined
+them. Both are digest tests recorded from the C before the CeeSafe
+port, which had no boot volume. Each now defines the function without
+noting it in the digest, so the digests are still the C's
+(`0xa8eae3202115e31f` for `blkctl`), and checks it directly:
+`blkctl_bootvol` names each of six devices the boot volume in turn, then
+none, and requires `LIST` to mark that one with `COSMO_BLKCTL_BOOT` and
+no other, partitions and the read-only flag as before; `test_part`
+requires one `bootvol_register` per `blk_part_scan_all`. With
+`blkctl.cee` setting no flag for the boot volume, `blkctl_bootvol` failed
+(`((d.flags & COSMO_BLKCTL_BOOT) != 0) == (i == which)`); with
+`part.cee` not calling `bootvol_register`, `test_part` failed
+(`g_bootvol_calls == g_scan_alls`); both sources restored, `make
+host-test` passed on the Mac. `uapi/cosmo/blkctl.h`'s comment on the boot
+flag names the boot volume.
+
 **On Parallels Desktop** (the owner's Mac, a new AArch64 VM "CosmoOS ISO
 test" with the ISO on its SATA CD and a blank 512 MiB NVMe disk), an
 earlier build of this branch: the firmware booted the CD to the live

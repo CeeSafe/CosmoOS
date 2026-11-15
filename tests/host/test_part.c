@@ -16,6 +16,7 @@
 #include "harness.h"
 
 #include <kernel/blk.h>
+#include <kernel/bootvol.h>
 #include <kernel/errno.h>
 #include <kernel/gpt.h>
 #include <kernel/kmalloc.h>
@@ -224,6 +225,22 @@ void blk_unregister(struct blkdev *bd)
             return;
         }
     EXPECT(!"blk_unregister of a device not registered");
+}
+
+/* The installer ISO's boot volume (bootvol.cee), which the C of the digest did not have: blk_part_scan_all registers
+ * it first, once a scan. Nothing noted, so the digest is still the C's; scan_all counts the calls. */
+static unsigned g_bootvol_calls, g_scan_alls;
+
+void bootvol_register(void)
+{
+    g_bootvol_calls++;
+}
+
+static void scan_all(void)
+{
+    g_scan_alls++;
+    blk_part_scan_all();
+    EXPECT(g_bootvol_calls == g_scan_alls);
 }
 
 struct blkdev *blk_nth(unsigned i)
@@ -700,7 +717,7 @@ static void step(void)
             blkdev_put(p);
         }
     } else if (what < 21) {
-        blk_part_scan_all();
+        scan_all();
     } else if (what < 55) {
         struct blkdev *p = some_partition();
         if (p != NULL) {
@@ -756,7 +773,7 @@ static void test_digest(void)
     blk_part_init();
     for (unsigned i = 0; i < 4; i++)
         add_disk(i);
-    blk_part_scan_all();
+    scan_all();
     for (unsigned r = 0; r < ROUNDS; r++)
         step();
 
