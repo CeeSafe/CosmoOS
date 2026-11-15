@@ -3,12 +3,13 @@
 Roadmap 1.3 R1 asks for the release in the forms other hypervisors take.
 The first PR (#525) added the QCOW2 and the VMDK; this one adds
 `cosmoos-<arch>.iso`, a UEFI CD that boots the live system and installs
-it onto a disk. The CeeSafe pin moved to 0.47.1 first, as the owner
-asked, since the ISO's kernel code is CeeSafe.
+it onto a disk. The CeeSafe pin moved to 0.48.1 first (#526), as the
+owner asked, since the ISO's kernel code is CeeSafe.
 
 ## Scope and baseline
 
-Branch `r1-iso`, stacked on `r1-images` (#525) and `ceesafec-0.47.1`.
+Branch `r1-iso`, stacked on `r1-images` (#525) and `ceesafec-0.47.1`
+(#526, the 0.48.1 pin).
 In scope: the ISO's writer, the kernel's view of the boot volume, the
 test, the release set and their documents. Out of scope: a CD driver
 (ATAPI or SCSI MMC), and what VMware, VirtualBox and UTM make of the
@@ -65,22 +66,29 @@ reads off the disc is all the system gets.
 
 ## Proof
 
-On the developer's Mac (QEMU 11.1.3), release builds, ceesafec 0.47.1:
+On the developer's Mac (QEMU 11.1.3), release builds, ceesafec 0.48.1,
+on `1d4fc791` (this branch with #525's and #526's heads merged in):
 
 | Check | x86-64 | AArch64 |
 |---|---|---|
-| `make BUILD=release test-images` | PASS in 33.5 s; the ISO stage live and installed in 11.4 s, the disk alone booted to `ahci0p0p2` and logged in in 9.6 s | PASS in 49.2 s; the ISO stage live and installed in 17.1 s, the disk alone booted to `vda2` and logged in in 13.6 s |
+| `make cee-check` | PASS: every source, `bootvol.cee` among them; `1 negative source(s) refused as their annotations say` | |
+| `make BUILD=release test-images` | PASS in 30.7 s; the ISO stage live and installed in 9.4 s, the disk alone booted to `ahci0p0p2` and logged in in 9.3 s | PASS in 43.0 s; the ISO stage live and installed in 13.5 s, the disk alone booted to `vda2` and logged in in 11.6 s |
 | the kernel's line on the CD | `bootvol: ... 131072 sectors, 23517184 bytes stored` | `bootvol: ... 131072 sectors, 23865856 bytes stored` |
 | `cosmoos-<arch>.iso` | 67,155,968 bytes | 67,155,968 bytes |
-| the ISO rebuilt from nothing (`out/.../iso` removed) | | the same SHA-256 (`6622ab17...`) |
+| the ISO rebuilt from nothing (`out/.../iso` and the ISO removed) | | the same SHA-256 (`782b4108...`) |
 | `make release-set` | | 13 files, the ISO among them, in `SHA256SUMS` |
 | `python3 tests/host/test_release_version.py` | 20 ok | |
+| `python3 tests/host/test_mkvmimages.py` (#525's) | 21 ok | |
 | `scripts/cee-share.py --gate origin/main` | PASS: no tree's C grew | |
+
+The same checks under 0.47.1, before the pin moved, gave the same kernel
+lines and sizes.
 
 **The test is not vacuous.** With `bootvol.cee` storing no bytes (every
 read zeros: `d.stored = 0`), the AArch64 ISO stage failed with
 `test-images: FAIL: iso: the installed disk's partition 1 is not the
-live image's ESP byte for byte`; the source restored, it passed (above).
+live image's ESP byte for byte`; the source restored, it passed. (Run
+under 0.47.1, before the pin moved; the 0.48.1 pass is the table's.)
 
 **On Parallels Desktop** (the owner's Mac, a new AArch64 VM "CosmoOS ISO
 test" with the ISO on its SATA CD and a blank 512 MiB NVMe disk), an
