@@ -3822,3 +3822,18 @@ See the [history index](README.md).
     kernel code. No `.cee` source changed; the x86-64 release kernel's
     text is 1408 bytes smaller.
   - Report: `docs/audit/2026-11-15-ceesafec-0481-report.md`.
+- **R1, second PR: the installer ISO (2026-11-15, roadmap 1.3).**
+  - `cosmoos-<arch>.iso` in the release set: `scripts/mkiso.py` writes a
+    UEFI El Torito CD (platform 0xEF, no emulation, the boot partition
+    last) whose boot archive also carries the installed system's boot
+    partition (`bootvol/`). The kernel registers it as `bootvol`, a
+    read-only block device (`kernel/block/bootvol.cee`, CeeSafe), and
+    blkctl flags it the boot device, so `cosmo-install`, unchanged,
+    installs from the CD. No CD driver; the loader and the installer are
+    unchanged (the C gate).
+  - `make test-images` gains the ISO stage (live from the CD, installed,
+    the ESP compared byte for byte, the disk booted alone and logged in);
+    `QEMU_BOOT_MEDIA=cdrom`. Booted and installed on Parallels too.
+  - The matrix found `test_blkctl` and `test_part` not linking the new
+    calls; each now checks them outside its C digest.
+  - Report: `docs/audit/2026-11-15-r1-installer-iso-report.md`.

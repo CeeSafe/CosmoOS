@@ -8,8 +8,8 @@ owner asked, since the ISO's kernel code is CeeSafe.
 
 ## Scope and baseline
 
-Branch `r1-iso`, stacked on `r1-images` (#525) and `ceesafec-0.47.1`
-(#526, the 0.48.1 pin).
+Branch `r1-iso`, made on `r1-images` (#525) and `ceesafec-0.47.1` (#526,
+the 0.48.1 pin) and merged with main after both (`af5a8b66`).
 In scope: the ISO's writer, the kernel's view of the boot volume, the
 test, the release set and their documents. Out of scope: a CD driver
 (ATAPI or SCSI MMC), and what VMware, VirtualBox and UTM make of the
@@ -122,7 +122,53 @@ colour on the VM's window.
 
 ## Validation
 
-VALIDATION
+On the other machine (the CI image, one container of 4 CPUs and 6 GiB,
+ceesafec 0.48.1's Linux build from the tree; `qemu-utils`, which the
+image predates and `test_mkvmimages.py` needs, installed in each
+container as this branch's `ci/Dockerfile` installs it), 2026-11-15,
+both architectures one after the other, on `f95da85b` (main's merge
+since adds one paragraph to flakes.md). The first run, on `1d4fc791`,
+failed `make host-test` on both and booted nothing (Proof, "Found by the
+matrix"). AArch64: `matrix: PASS`. x86-64: `matrix: FAIL` on two
+two-CPU boots, below.
+
+| Step | x86-64 | AArch64 |
+|---|---|---|
+| debug, release, chaos and harness-retry builds, `make cee-check` | PASS | PASS |
+| `make host-test`, `make fuzz` | PASS | PASS |
+| `make analyze` | clean (15 baselined, 0 unexpected, 0 stale) | clean (15 baselined, 0 unexpected, 0 stale) |
+| debug `make test`, `QEMU_SMP=1` | PASS in 246.5 s | PASS in 275.5 s |
+| debug `make test`, `QEMU_SMP=2` | FAIL after 242.2 s (`blk-irq-budget`); alternated with the base, below: 2 of 2 PASS | PASS in 285.6 s |
+| debug `make test`, `QEMU_SMP=4` | PASS in 260.1 s | PASS in 310.6 s |
+| `make test-smp2` | FAIL after 304.0 s (timed out); alternated with the base, below: 3 of 3 PASS | PASS in 285.4 s |
+| `make test-chaos` | PASS in 254.5 s | PASS in 305.4 s |
+| `make test-harness-retry` | PASS in 257.6 s | PASS in 302.8 s |
+| `make BUILD=release test` | PASS in 20.1 s | PASS in 23.8 s |
+
+**The two failures.** The `QEMU_SMP=2` boot failed one self-test of 528,
+`blk-irq-budget`: `the device had the next completion ready under 90% of
+the time`, ready 2944 times of 3301 (89%), its longest tick gap 165 ms
+and a bystander's wait 222 ms, under their 250 ms bounds. The storm
+formed and stalled for part of its second: the host holding a vCPU, the
+check flakes.md's 2026-10-13 entry describes. `test-smp2` timed out with
+`self-test cosmofs-replay took 46379 ms (budget 40000 ms)` and the
+watchdog's line, `blk-irq-budget` passing (tick gap 9 ms): TEST-28's slow
+mode, seen at two CPUs for the first time; every other x86-64 boot of
+the matrix took 30.2 to 36.0 s for `cosmofs-replay`. The branch's kernel
+change is the boot volume, which registers nothing on these boots (their
+archive has no `bootvol/`), so the branch and its base (`e63ac6c0`,
+main's tree since #526) were booted alternately on the same machine:
+
+| boot | base: `cosmofs-replay`, verdict | branch |
+|---|---|---|
+| `test-smp2` 1 | 28488 ms, PASS in 237.6 s | 28792 ms, PASS in 238.2 s |
+| `test-smp2` 2 | 29504 ms, PASS in 239.7 s | 28945 ms, PASS in 240.5 s |
+| `test-smp2` 3 | 28687 ms, PASS in 240.4 s | 29222 ms, PASS in 236.1 s |
+| `QEMU_SMP=2` 1 | 29780 ms, PASS in 237.9 s | 29515 ms, PASS in 239.4 s |
+| `QEMU_SMP=2` 2 | 29535 ms, PASS in 240.2 s | 29861 ms, PASS in 241.3 s |
+
+The self-tests' totals agree within 2% (179.7 to 183.7 s). Recorded in
+flakes.md under both entries, and backlog TEST-28. No budget was changed.
 
 ## Limits
 

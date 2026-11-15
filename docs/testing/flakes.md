@@ -4731,6 +4731,18 @@ was rerun and passed (job 115083358004); that runner was slow too, its
 boots 171-183 s, so the test's storm can form on a slow runner and this
 one was slower still in the storm's second.
 
+Later sightings on the other machine (the CI image, one container of 4
+CPUs), 2026-11-15. The ceesafec 0.47.1 bump's four-CPU debug boot:
+ready 0 times of 741, a tick gap of 944 ms (under TEST-28's entry). R1's
+ISO branch's matrix, the `QEMU_SMP=2` debug boot, `boot-test: FAIL after
+242.2s`, 1 of 528: 3365 completions, 3301 resubmitted, **ready 2944
+times and not 357** (89%, against the 90% the check asks), the longest
+tick gap 165 ms and a bystander's wait 222 ms (both under their 250 ms
+bounds): a storm that formed and stalled for part of its second. The
+same boot of the same tree, and of its base, passed twice each in
+alternation after the matrix, every `cosmofs-replay` 29.5 to 29.9 s
+(R1's ISO report).
+
 ## `net-netif-lifetime`: a queue count of every interface, 2026-10-14
 
 `SELFTEST: net-netif-lifetime ... FAIL: check failed:
@@ -5705,7 +5717,20 @@ watchdog's line (221627 ms; `blk-irq-budget` passed, its longest tick gap
 lines and entropy devices differ), so the spread between them is not the
 runner's speed alone.
 
-What is not known: what the slow mode is (the guest's scheduling at four CPUs, or QEMU's), and since when. No
+**The first sighting at two CPUs**, R1's ISO branch's matrix on the other
+machine (`f95da85b`), 2026-11-15: `make test-smp2` (two CPUs, NVMe with
+one MSI-X vector) timed out after 304.0 s with `self-test cosmofs-replay
+took 46379 ms (budget 40000 ms)` and the watchdog's line, 239550 ms of
+self-tests, `cosmofs-snap-reserved` 7084 ms, `blk-irq-budget` passing
+(tick gap 9 ms). Every other x86-64 boot of that matrix, the three
+four-CPU ones among them, took 30.2 to 36.0 s. Then the branch and its
+base (`e63ac6c0`, main's tree since #526), alternated on the same
+machine: `test-smp2` three times each, 28.5 to 29.5 s (base) and 28.8 to
+29.2 s (branch), and `QEMU_SMP=2` `make test` twice each, 29.5 to 29.9 s;
+all ten passed. So two CPUs are not proof against the slow mode: one of
+the twelve two-CPU boots of these two trees.
+
+What is not known: what the slow mode is (the guest's scheduling, at four CPUs most often, or QEMU's), and since when. No
 budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
 
 ## lxtest killed by signal 12 in `test-entropy`'s second boot, x86-64, 2026-11-14
