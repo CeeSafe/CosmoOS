@@ -5669,6 +5669,17 @@ two trees' matrices agree within a few per cent (x86-64 `cosmofs-replay`
 x86-64 boot's, as the table above shows for the wake fix (31 to 36 s
 fast).
 
+The bump moved on to 0.48.1 (the same report), whose kernel C is 0.47.1's
+but for each file's first comment, the one other change sitting under
+`#if !defined(CEE_FREESTANDING)`. Its matrix on the other machine, the
+same day: the four-CPU debug boot timed out (`cosmofs-replay` 50403 ms,
+245688 ms of self-tests) and so did `test-harness-retry` (54753 ms,
+`cosmofs-snap-reserved` 9039 ms over its 8 s, 258465 ms), both with the
+watchdog's line and `blk-irq-budget` passing (tick gaps of 7 and 10 ms);
+`test-chaos` between them ran fast (34674 ms, 195578 ms). The one- and
+two-CPU boots took 28.6 to 29.7 s; `lockdep-graph-bench` was 9.0 to 9.4 s
+in all three four-CPU boots.
+
 What is not known: what the slow mode is (the guest's scheduling at four CPUs, or QEMU's), and since when. No
 budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
 
