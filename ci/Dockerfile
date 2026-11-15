@@ -29,8 +29,8 @@ RUN apt-get update \
 # (build/cee.mk). Its Linux x64 release archive (github.com/CeeSafe/CeeSafe), checked against the release's SHA256SUMS;
 # one native executable built from C, needing glibc 2.35 or newer, which the image has. A bump changes this file, so
 # the image is rebuilt.
-ARG CEESAFEC_VERSION=0.37.0
-ARG CEESAFEC_SHA256=ce9289c43be31d8bb7ce65d7172078ca26b23832b265a68839bce382efa072c3
+ARG CEESAFEC_VERSION=0.48.1
+ARG CEESAFEC_SHA256=aea77ae3bf6f3e033915d889242cc5bdee52798e9a097a5ebf27c1d196041078
 # fetch-ceesafec.py downloads it through the GitHub API, then the download URL, retrying, and checks the SHA-256; the
 # API token is a build secret (scripts/ci-image.sh), in no layer.
 COPY fetch-ceesafec.py /tmp/fetch-ceesafec.py
