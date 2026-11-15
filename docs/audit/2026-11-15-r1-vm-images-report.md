@@ -29,8 +29,12 @@ release publishes.
   A VMDK is not: its embedded descriptor carries a content id
   (`CID=`) that qemu-img draws at random, and its extent line names the
   file it was written as. The script converts under the final name (in a
-  fresh directory beside it) and replaces the CID with the first eight hex
-  digits of the image's SHA-256, the same length, so no byte moves.
+  fresh directory beside it) and rewrites the descriptor's region (the
+  sectors the sparse header names) with the CID set to the first eight hex
+  digits of the image's SHA-256 and the text padded with zeros to the
+  region's end. qemu-img prints its CID unpadded, so its length varies
+  with the draw; the first version, which replaced eight digits in place,
+  failed one conversion in sixteen (below, "Found by CI").
 - **`make vm-images`**, and the release set (`scripts/mkrelease.py`,
   `make release-set`) carries both; `scripts/check-release-version.py`'s
   list of a set's names and its host test know them.
@@ -119,6 +123,42 @@ of four-CPU x86-64 debug boots on that machine (`docs/testing/flakes.md`,
 to 36. The step run again took the fast mode (`cosmofs-replay` 29.6 s).
 This PR compiles nothing new into a kernel or a program. No budget was
 changed.
+
+## Found by CI: a CID of seven digits
+
+The PR's first CI run (43650889097) failed two jobs out of the many that
+build the release set: `release set, reproducible (aarch64)` and
+`encrypted root test (x86_64, encrypt)`, both with `mkvmimages:
+.../cosmoos-<arch>.vmdk: no CID line in the embedded descriptor`. The
+others, the `install` jobs running `test-images` among them, passed.
+
+The mechanism is QEMU's: `vmdk.c` prints the content id it draws with
+`CID=%x`, unpadded, and the script's pattern asked for exactly eight
+digits. Forty conversions of one image on the Mac (qemu-img 11.1.3) gave
+37 eight-digit CIDs and 3 of seven, near the one in sixteen a random
+32-bit value has below `0x10000000`. Putting eight digits in place of
+seven would also have moved every byte after the CID and left the
+draw's length in the file.
+
+The fix rewrites the whole descriptor region from the header's
+`desc_offset` and `desc_size`, as above, and refuses a region with bytes
+after its text, no CID or two, or an extent line naming another file.
+`tests/host/test_mkvmimages.py` (in `make host-test`) proves it both ways:
+synthetic descriptors whose CIDs have eight, seven and one digits come out
+identical, and a wrapper around qemu-img forces the CID it draws. Against
+the first version, the forced seven- and one-digit runs fail with CI's
+message, twice in two runs; against the fix every case passes, the three
+forced VMDKs are equal to an unforced one, and `qemu-img check` and
+`compare` accept them. `make BUILD=release test-images` on x86-64 passed
+again with the fix (12.4 s). What changed is a host script no matrix
+step runs and a host test, run on the Mac; no compiled code changed, so
+the matrix above was not run again. CI's `host-test`, `reproducible` and
+`install` jobs run all three on Linux, on both architectures.
+
+The same run's review asked for `qemu-utils` in
+`scripts/setup-dev-linux.sh` and the two install lines that list its
+packages (`docs/development.md`, `docs/build/testing.md`), since `make
+check-tools` now asks for `qemu-img`; they have it.
 
 ## Limits
 
