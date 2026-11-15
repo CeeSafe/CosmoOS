@@ -84,6 +84,9 @@ PORTS = [
     ("kernel/block/ramblk.cee", "kernel/block/ramblk.c",
      "The RAM block device with a write recorder, for the debug builds' harnesses (ramblk.h)",
      "kernel/include/kernel/ramblk_types.h", True),
+    ("kernel/block/bootvol.cee", "kernel/block/bootvol.c",
+     "The boot volume in the boot archive: the installer ISO's copy of the boot partition, a read-only block device "
+     "(bootvol.h)", "kernel/include/kernel/bootvol.h", True),
     ("kernel/block/blkserial.cee", "kernel/block/blkserial.c",
      "Disk serials: the printable ASCII drivers keep, and the self-tests' test disks (blk.h)",
      "kernel/include/kernel/blkserial.h", True),

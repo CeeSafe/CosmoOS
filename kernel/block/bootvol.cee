@@ -1,0 +1,239 @@
+// bootvol.cee - The boot volume in the boot archive (docs/boot/design.md, "The installer ISO"), in CeeSafe: roadmap
+// 1.3 R1. Its C interface, kernel/include/kernel/bootvol.h, is ceesafec's.
+//
+// The installer ISO boots from a CD, which the kernel has no driver for: what the firmware read off it is all this
+// system gets. So the ISO's boot archive carries the installed system's boot partition -- the ESP of the live image,
+// the same bytes `cosmo-install` copies from a disk boot -- as two files: `bootvol/esp.img`, its bytes up to the last
+// sector that is not zero, and `bootvol/sectors`, its whole length in 512-byte sectors, in decimal. This registers
+// them as a read-only block device, `bootvol`, which reads zeros past what is stored; blkctl marks it as the boot
+// device, so the installer copies it as it copies a boot partition. The archive is signed with the kernel (verified
+// boot), and so is what the device holds. Without those files, nothing is registered.
+
+@header("kernel/blk.h", "kernel/bootarchive.h", "kernel/kmalloc.h")
+extern "C" {
+    struct blkdev_ops {
+        submit: extern "C" fn(*mut blkdev, *mut bio) -> i32;
+        release: extern "C" fn(*mut blkdev);
+    }
+    struct blkdev {
+        obj: kobject;
+        ops: *blkdev_ops;
+        sector_size: u32;
+        capacity: u64;
+        max_sectors: u32;
+        read_only: bool;
+        priv: *mut void;
+        max_segments: u32;
+    }
+    struct bio_vec {
+        buf: *mut void;
+        len: u32;
+    }
+    struct bio {
+        dev: *mut blkdev;
+        sector: u64;
+        nsectors: u32;
+        dir: u32;
+        buf: *mut void;
+        vecs: *mut bio_vec;
+        nr_vecs: u32;
+    }
+
+    fn blk_register_named(bd: *mut blkdev, name: *CChar) -> i32;
+    fn bio_complete(b: *mut bio, status: i32);
+    fn kzalloc(size: usize) -> *mut void;
+    fn bootarchive_find(name: *CChar, data: *mut *void, size: *mut usize) -> bool;
+}
+
+// ---- errno.h and blk.h values ----
+
+const EROFS: i32 = 30;
+const BIO_READ: u32 = 0;
+const BIO_WRITE: u32 = 1;
+const SECTOR: u64 = 512;
+/// The longest `bootvol/sectors` read: a 64-bit count has 20 digits.
+const DIGITS_MAX: usize = 20;
+
+/// The device: its blkdev first, the stored bytes, and how many there are.
+@repr(C)
+struct bootvol {
+    bd: blkdev;
+    data: *u8;
+    stored: u64;
+}
+
+static mut BOOTVOL_OPS: blkdev_ops = blkdev_ops { submit: submit, release: releaseDevice };
+
+/// The registered device's blkdev, as an integer; 0 when there is none. Written once, before userland starts.
+static THE_DEVICE: AtomicU64 = AtomicU64.constant(0);
+
+/// The device behind a blkdev.
+/// Safety: `bd` is the boot volume's blkdev.
+unsafe fn of(bd: *mut blkdev) -> *mut bootvol => Ptr.toBorrow(bd as *blkdev).priv as *mut bootvol;
+
+/// One segment of a bio: where its bytes are and how many.
+struct Segment {
+    buf: *mut u8;
+    len: usize;
+}
+
+/// The segments of a bio (blk.h's bio_segments).
+/// Safety: `b` is a live bio.
+unsafe fn segments(b: *bio) -> u32 {
+    let n = Ptr.toBorrow(b).nr_vecs;
+    return if (n != 0) n else 1;
+}
+
+/// Segment `i` of a bio (blk.h's bio_segment).
+/// Safety: `b` is a live bio; `i` < segments(b).
+unsafe fn segment(b: *bio, i: u32) -> Segment {
+    let o = Ptr.toBorrow(b);
+    if (o.nr_vecs == 0) {
+        return Segment { buf: o.buf as *mut u8, len: o.nsectors as usize * SECTOR as usize };
+    }
+    let v = Ptr.toBorrow(o.vecs.add(i as usize) as *bio_vec);
+    return Segment { buf: v.buf as *mut u8, len: v.len as usize };
+}
+
+/// Fill `buf` with the `len` bytes of the volume at byte `byte`: the stored bytes, and zeros past them.
+/// Safety: `v` is the live device; the range lies within it; `buf` has `len` bytes.
+unsafe fn fill(v: *bootvol, byte: u64, buf: *mut u8, len: usize) {
+    let d = Ptr.toBorrow(v);
+    let out = SliceMut.fromRaw(buf, len);
+    var have: usize = 0;
+    if (byte < d.stored) {
+        let left = d.stored - byte;
+        have = if (left < len as u64) truncate<usize>(left) else len;
+        out[..have].copyFrom(Slice.fromRaw(d.data.add(truncate<usize>(byte)), have));
+    }
+    out[have..].fill(0);
+}
+
+/// The device's submit: reads are copied at once, a write is refused (the block layer refuses one first, the device
+/// being read-only), and a flush has nothing to do.
+/// Safety: `bd` is the boot volume's blkdev; `b` a bio the block layer validated against it.
+@callback
+unsafe fn submit(bd: *mut blkdev, b: *mut bio) -> i32 {
+    let dir = Ptr.toBorrow(b as *bio).dir;
+    if (dir == BIO_WRITE) {
+        bio_complete(b, -EROFS);
+        return 0;
+    }
+    if (dir == BIO_READ) {
+        var byte = Ptr.toBorrow(b as *bio).sector * SECTOR;
+        for (i in 0..segments(b as *bio)) {
+            let s = segment(b as *bio, i);
+            fill(of(bd) as *bootvol, byte, s.buf, s.len);
+            byte += s.len as u64;
+        }
+    }
+    bio_complete(b, 0);
+    return 0;
+}
+
+/// The device's release: the last reference is gone (it never is: the device is never unregistered).
+/// Safety: `bd` is the boot volume's blkdev, used by nothing after this.
+@callback
+unsafe fn releaseDevice(bd: *mut blkdev) {
+    kfree(of(bd) as *mut void);
+}
+
+/// `bootvol/sectors`: a decimal count, digits up to the first byte that is not one (a newline); 0 when there are
+/// none, more than DIGITS_MAX, or the count is 0.
+fn parseSectors(text: Slice<u8>) -> u64 {
+    var n: u64 = 0;
+    var digits: usize = 0;
+    for (c in text) {
+        if (c < 48 || c > 57) {
+            break;
+        }
+        digits += 1;
+        if (digits > DIGITS_MAX) {
+            return 0;
+        }
+        n = n.wrappingMul(10).wrappingAdd((c - 48) as u64);
+    }
+    return n;
+}
+
+/// bootvol.h's bootvol_register: register the boot archive's boot volume, if it has one. Called once, as the disks
+/// are scanned at boot (part.cee's blk_part_scan_all).
+/// Safety: called from thread context (it sleeps), after bootarchive_init.
+@export("bootvol_register")
+unsafe fn register() {
+    if (THE_DEVICE.loadWith(LoadOrdering.Acquire) != 0) {
+        return;
+    }
+    var text = 0 as *void;
+    var textSize: usize = 0;
+    var data = 0 as *void;
+    var dataSize: usize = 0;
+    let haveCount = bootarchive_find(
+        "bootvol/sectors\0".ptr as *CChar, borrow mut text as *mut *void,
+        borrow mut textSize as *mut usize,
+    );
+    let haveData = bootarchive_find(
+        "bootvol/esp.img\0".ptr as *CChar, borrow mut data as *mut *void,
+        borrow mut dataSize as *mut usize,
+    );
+    if (!haveCount && !haveData) {
+        return; // a disk boot's archive: no boot volume
+    }
+    let sectors = if (haveCount) parseSectors(Slice.fromRaw(text as *u8, textSize)) else 0;
+    if (!haveCount || !haveData || sectors == 0 || dataSize as u64 > sectors.wrappingMul(SECTOR)) {
+        {
+            var buffer = [0u8; 160];
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("bootvol: the boot archive's bootvol/sectors and bootvol/esp.img do not agree; no boot volume");
+            KernelLog.send(LogLevel.Error, line);
+        }
+        return;
+    }
+    let v = kzalloc(layoutOf<bootvol>().size) as *mut bootvol;
+    if (v.isNull()) {
+        {
+            var buffer = [0u8; 160];
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("bootvol: out of memory; no boot volume");
+            KernelLog.send(LogLevel.Error, line);
+        }
+        return;
+    }
+    let d = Ptr.toBorrowMut(v);
+    let bd = borrow mut d.bd as *mut blkdev;
+    d.bd.priv = v as *mut void;
+    d.data = data as *u8;
+    d.stored = dataSize as u64;
+    d.bd.ops = borrow BOOTVOL_OPS as *blkdev_ops;
+    d.bd.sector_size = truncate<u32>(SECTOR);
+    d.bd.capacity = sectors;
+    d.bd.max_sectors = 256;
+    d.bd.max_segments = 8;
+    d.bd.read_only = true;
+    if (blk_register_named(bd, "bootvol\0".ptr as *CChar) != 0) {
+        kfree(v as *mut void);
+        {
+            var buffer = [0u8; 160];
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("bootvol: the name bootvol is taken; no boot volume");
+            KernelLog.send(LogLevel.Error, line);
+        }
+        return;
+    }
+    THE_DEVICE.storeWith(bd as usize as u64, StoreOrdering.Release);
+    var buffer = [0u8; 160];
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("bootvol: the installed system's boot partition, from the boot archive: ");
+    line.decimal(sectors);
+    line.text(" sectors, ");
+    line.decimal(dataSize as u64);
+    line.text(" bytes stored");
+    KernelLog.send(LogLevel.Info, line);
+}
+
+/// bootvol.h's bootvol_is: whether `bd` is the boot volume (blkctl marks it the boot device).
+@export("bootvol_is")
+fn isBootVolume(bd: *blkdev) -> bool {
+    let the = THE_DEVICE.loadWith(LoadOrdering.Acquire);
+    return the != 0 && the == bd as usize as u64;
+}

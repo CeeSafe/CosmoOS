@@ -59,7 +59,7 @@ include $(ROOT)/build/cee.mk
 include $(ROOT)/build/toolchain.mk
 include $(ROOT)/build/rules.mk
 
-.PHONY: FORCE all kernel boot modules image vm-images run test test-images test-entropy test-modcycle test-install test-encrypt test-encrypt-b1b4 test-snapshot test-fsck test-pci-hotplug test-mirror test-pkgtx test-be test-large test-fill test-selfhost test-upgrade test-security test-busybox test-net-login test-pkg-net test-display test-gic test-platforms test-guard test-smp2 test-crash test-crash-cee test-stackprot test-wxn test-chaos test-harness-retry analyze analysis-gate reproducible release release-set compile-commands check-tools check-secrets check-docs cee cee-check dist clean help litmus
+.PHONY: FORCE all kernel boot modules image vm-images iso run test test-images test-entropy test-modcycle test-install test-encrypt test-encrypt-b1b4 test-snapshot test-fsck test-pci-hotplug test-mirror test-pkgtx test-be test-large test-fill test-selfhost test-upgrade test-security test-busybox test-net-login test-pkg-net test-display test-gic test-platforms test-guard test-smp2 test-crash test-crash-cee test-stackprot test-wxn test-chaos test-harness-retry analyze analysis-gate reproducible release release-set compile-commands check-tools check-secrets check-docs cee cee-check dist clean help litmus
 .DEFAULT_GOAL := all
 
 include $(ROOT)/kernel/kernel.mk
@@ -155,6 +155,39 @@ $(IMAGE): $(KERNEL_SHIP_ELF) $(LOADER_EFI) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MAN
 	$(call log,IMAGE,$@)
 	$(Q)$(ROOT)/scripts/mkimage.sh $@ $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST)
 
+# The installer ISO (roadmap 1.3 R1; docs/boot/design.md, "The installer
+# ISO"; scripts/mkiso.py). It boots from a CD the kernel cannot read, so its
+# boot archive is the image's plus the image's boot partition (bootvol/esp.img,
+# trailing zero sectors left out, and bootvol/sectors), which the kernel
+# registers as the read-only boot device `bootvol` (kernel/block/bootvol.cee)
+# for cosmo-install to copy. The ISO's own boot partition holds the same
+# loader, kernel and command line, that archive, and a manifest signing it;
+# it is built as a GPT image by mkimage.sh and put on the disc by mkiso.py.
+ISO_DIR := $(OUT)/iso
+ISO_IMAGE := $(OUT)/cosmoos-$(ARCH).iso
+ISO_BOOTVOL := $(ISO_DIR)/bootvol/esp.img $(ISO_DIR)/bootvol/sectors
+ISO_ARCHIVE := $(ISO_DIR)/boot.tar
+ISO_MANIFEST := $(ISO_DIR)/manifest
+ISO_DISK := $(ISO_DIR)/esp-disk.img
+iso: $(ISO_IMAGE)
+$(ISO_BOOTVOL) &: $(IMAGE) $(ROOT)/scripts/mkiso.py
+	$(call log,BOOTVOL,$(ISO_DIR)/bootvol)
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkiso.py bootvol $(IMAGE) $(ISO_DIR)/bootvol >/dev/null
+$(ISO_ARCHIVE): $(BOOT_ARCHIVE) $(ISO_BOOTVOL) $(ROOT)/scripts/mkbootarchive.py
+	$(call log,ARCHIVE,$@)
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkbootarchive.py $@ $(BOOT_ARCHIVE_ENTRIES) \
+		bootvol/esp.img=$(ISO_DIR)/bootvol/esp.img bootvol/sectors=$(ISO_DIR)/bootvol/sectors
+$(ISO_MANIFEST): $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(MODSIGN_KEY) $(SIGNING_STAMP) $(ROOT)/scripts/mkmanifest.py \
+		$(ROOT)/scripts/modsign.py
+	$(call log,MANIFEST,$@)
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkmanifest.py sign --key $(MODSIGN_KEY) --out $@ $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE)
+$(ISO_DISK): $(KERNEL_SHIP_ELF) $(LOADER_EFI) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(ISO_MANIFEST) $(ROOT)/scripts/mkimage.sh $(ROOT)/scripts/mkgpt.py
+	$(call log,IMAGE,$@)
+	$(Q)MKIMAGE_ESP=fit $(ROOT)/scripts/mkimage.sh $@ $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(ISO_ARCHIVE) $(CMDLINE_FILE) $(ISO_MANIFEST)
+$(ISO_IMAGE): $(ISO_DISK) $(ROOT)/scripts/mkiso.py
+	$(call log,ISO,$@)
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkiso.py iso $(ISO_DISK) $@ >/dev/null
+
 # Roadmap M6 (docs/development.md, "Releases"): one architecture's release
 # set -- the signed live image, the loader, kernel.elf, boot.tar, the
 # command line, the manifest, cosmo-upgrade (S7), the signed package of
@@ -170,11 +203,11 @@ release:
 
 UPGRADE_ELF = $(call prog_elf,cosmo-upgrade)
 VERIFY_ELF = $(call prog_elf,cosmo-verify)
-release-set: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
+release-set: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
 		$(COSMO_FETCH_ELF) \
 		$(ROOT)/scripts/mkrelease.py $(ROOT)/tools/pkgbuild.py $(ROOT)/scripts/modsign.py
 	$(call log,RELEASE,$(RELEASE_DIR))
-	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
+	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
 		$(BOOT_ARCHIVE) $(MANIFEST) $(CMDLINE_FILE) $(UPGRADE_ELF) $(VERIFY_ELF) $(COSMO_FETCH_ELF) $(MODSIGN_KEY) $(PKGSIGN_KEY) \
 		$(BUILD_ID)
 
@@ -357,10 +390,10 @@ test-install: $(IMAGE)
 # "test-images"): the release set's QCOW2 and VMDK hold the live image's
 # bytes, and each boots as the boot disk to the live shell. (CI:
 # BUILD=release, in the install job.)
-test-images: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE)
+test-images: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE)
 	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
 		$(PYTHON) $(ROOT)/tests/boot/images_test.py --image $(IMAGE) --qcow2 $(QCOW2_IMAGE) --vmdk $(VMDK_IMAGE) \
-		--workdir $(OUT)/test-images --timeout $(BOOT_TIMEOUT)
+		--iso $(ISO_IMAGE) --workdir $(OUT)/test-images --timeout $(BOOT_TIMEOUT)
 
 # Roadmap 1.2 A1's acceptance test (tests/boot/selfhost_test.py,
 # docs/userland/testing.md, "test-selfhost"): on this build installed,

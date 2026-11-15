@@ -35,6 +35,9 @@
 #               stopped in the firmware's RNG call"; tests/boot/install_test.py)
 #   QEMU_IMAGE_FORMAT  the boot disk's format (default raw; qcow2 and vmdk
 #               boot the release set's other images: make test-images)
+#   QEMU_BOOT_MEDIA  cdrom attaches the image as a CD instead of a disk (the
+#               installer ISO: make test-images): on q35 the ICH9 AHCI's, on virt
+#               a virtio-SCSI CD drive
 #   OVMF_CODE   firmware image override
 #
 # The isa-debug-exit device lets the kernel terminate QEMU with an exit
@@ -72,6 +75,20 @@ boot_ro=",readonly=on"
 if [ "${QEMU_DISKS:-all}" = boot ]; then
     QEMU_NVMEDISK=0 QEMU_USB=0 QEMU_SATA=0 QEMU_RMDISK=0 QEMU_TESTDISK=0
     boot_ro=""
+fi
+# The boot image as a disk (the default) or, for the installer ISO, a CD:
+# what each machine's firmware boots from (q35's AHCI, virt's virtio-SCSI).
+# Only the drive's options and the devices are here, never the path: the
+# path stays in one quoted word, -drive "...,file=$image".
+x86_drive="format=${QEMU_IMAGE_FORMAT:-raw}"
+a64_drive="if=none,id=boot,format=${QEMU_IMAGE_FORMAT:-raw}${boot_ro}"
+a64_bus=""
+a64_dev="-device virtio-blk-pci,drive=boot"
+if [ "${QEMU_BOOT_MEDIA:-disk}" = cdrom ]; then
+    x86_drive="media=cdrom,readonly=on,format=raw"
+    a64_drive="if=none,id=boot,media=cdrom,readonly=on,format=raw"
+    a64_bus="-device virtio-scsi-pci,id=scsi0"
+    a64_dev="-device scsi-cd,drive=boot,bus=scsi0.0"
 fi
 testdisk=${QEMU_TESTDISK:-$outdir/testdisk.img}
 test_devs=""
@@ -330,8 +347,9 @@ if [ "$arch" = aarch64 ]; then
         -m "${QEMU_MEM:-256M}" \
         -drive if=pflash,format=raw,readonly=on,file="$padded" \
         $test_devs \
-        -drive if=none,id=boot,format=${QEMU_IMAGE_FORMAT:-raw}${boot_ro},file="$image" \
-        -device virtio-blk-pci,drive=boot \
+        $a64_bus \
+        -drive "$a64_drive,file=$image" \
+        $a64_dev \
         $nvme_devs \
         $rng_dev $trace \
         -device virtio-serial-pci \
@@ -364,7 +382,7 @@ exec ${QEMU_WRAP:-} qemu-system-x86_64 \
     -smp "${QEMU_SMP:-4}" \
     -m "${QEMU_MEM:-256M}" \
     -drive if=pflash,format=raw,readonly=on,file="$firmware" \
-    -drive format=${QEMU_IMAGE_FORMAT:-raw},file="$image" \
+    -drive "$x86_drive,file=$image" \
     $test_devs \
     $nvme_devs \
     $rng_dev $trace \

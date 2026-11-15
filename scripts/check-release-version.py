@@ -51,7 +51,7 @@ TAG = re.compile(r"^v\d+\.\d+\.\d+(-rc\d+)?$")
 DESCRIBE = re.compile(rb"(?<![\w.])v\d+\.\d+\.\d+(?:-rc\d+)?(?:-\d+-g[0-9a-f]{7,40})?(?:-dirty)?(?![\w.-])")
 NOTES_VERSION = re.compile(r"CosmoOS (\d+\.\d+\.\d+(?:-rc\d+)?)\b")
 LOADER = {"x86_64": "BOOTX64.EFI", "aarch64": "BOOTAA64.EFI"}
-SET_NAMES = ("{a}.img", "{a}.qcow2", "{a}.vmdk", "{a}-{loader}", "{a}-kernel.elf", "{a}-boot.tar", "{a}-cmdline", "{a}-manifest",
+SET_NAMES = ("{a}.img", "{a}.qcow2", "{a}.vmdk", "{a}.iso", "{a}-{loader}", "{a}-kernel.elf", "{a}-boot.tar", "{a}-cmdline", "{a}-manifest",
              "{a}-cosmo-upgrade", "{a}-cosmo-upgrade.cpk", "SHA256SUMS", "SHA256SUMS.sig")
 
 

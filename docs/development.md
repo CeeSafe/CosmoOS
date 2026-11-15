@@ -82,7 +82,8 @@ Notes:
 | `test-platforms` | AArch64 platform discovery (`tests/boot/platform_test.py`; `docs/kernel/arch/aarch64/testing.md`, "make test-platforms"): the image under six QEMU configurations that differ from virt's defaults (`gicv2`, `gicv3`, `lowmem` with `highmem=off`, `rndr` on `neoverse-v1`, `nornd` on `cortex-a72`, both without virtio-rng, and `noserial`: `-serial none` and `serial=none` on a re-signed command line); each must reach the userland and print the platform line with what that machine has. Logs in `$(OUT)/test-platforms/<variant>/`. Prints that it is AArch64 only and succeeds on x86-64. CI job `platforms` (`BUILD=release`) |
 | `test-crash` | Build with `CRASH_TEST=1` and verify the harness detects a deliberate panic |
 | `vm-images` | The live image as `out/<arch>-<build>/cosmoos-<arch>.qcow2` and `cosmoos-<arch>.vmdk` (one-file `monolithicSparse`), by `qemu-img` (`scripts/mkvmimages.py`; roadmap 1.3 R1): the same bytes, for QEMU, UTM and KVM clouds, and VMware and VirtualBox. The VMDK's random content id is replaced by one from the image's SHA-256, so both are as reproducible as the image |
-| `test-images` | Roadmap 1.3 R1 (`tests/boot/images_test.py`; docs/userland/testing.md, "test-images"): `qemu-img check` and `compare` find the QCOW2 and the VMDK consistent and equal to the raw image, and each boots as the boot disk (`QEMU_IMAGE_FORMAT`) to the live shell. CI job `install` (`BUILD=release`) |
+| `iso` | The installer ISO, `out/<arch>-<build>/cosmoos-<arch>.iso` (`scripts/mkiso.py`; docs/boot/design.md, "The installer ISO"): a UEFI El Torito disc whose boot archive carries the live image's boot partition, which the kernel presents as the read-only disk `bootvol` for `cosmo-install` to copy |
+| `test-images` | Roadmap 1.3 R1 (`tests/boot/images_test.py`; docs/userland/testing.md, "test-images"): `qemu-img check` and `compare` find the QCOW2 and the VMDK consistent and equal to the raw image, and each boots as the boot disk (`QEMU_IMAGE_FORMAT`) to the live shell; the ISO boots as a CD, installs onto a blank disk, and the disk boots alone and logs in. CI job `install` (`BUILD=release`) |
 | `host-test` | Compile the memory, crypto, module-validation, cosmofs-layout, libc, package-parser, Linux-conversion, nested-page-table and AArch64-relocation algorithms natively with ASan/UBSan and run `tests/host/` (see below) |
 | `host-test-fetch` | `cosmo-fetch` (the HTTPS client `pkg` and `cosmo-upgrade` run) built for the host on the target's mbedTLS release and configuration, with ASan/UBSan, and run against local TLS servers: certificate, pin, plain-HTTP, redirect, range and size cases (`tests/host/test_fetch.py`; `ports/mbedtls/README.md`, "Tested by"). Needs the pinned mbedTLS archive and OpenSSL 3.4 or later |
 | `fuzz` | Build the host fuzz targets in `tests/fuzz/` (module ELF, user ELF, package formats, Linux ABI conversions, virtqueue, cosmofs images) under ASan/UBSan and run each over its seeds and `FUZZ_RUNS` (default 20000) seeded mutations; `FUZZ_ENGINE=libfuzzer` links libFuzzer instead; `fuzz-build` builds only (`docs/verification/`) |
@@ -299,6 +300,7 @@ Set on the command line (`make BUILD=release test`) or in the environment.
 | `QEMU_FWCFG_NETTEST` | empty | Value of the fw_cfg item `opt/cosmo/nettest` (`tcp=<hostport>`); its presence makes the `net-harness` self-test run and connect back to the host. The boot test sets it |
 | `QEMU_PCAP` | empty | When set, QEMU records every frame on the guest NIC into this pcap file (`filter-dump`), for Wireshark or `tcpdump -r` |
 | `QEMU_IMAGE_FORMAT` | `raw` | The boot disk's format on both machines: `qcow2` and `vmdk` boot the release set's other images (`make test-images`) |
+| `QEMU_BOOT_MEDIA` | `disk` | `cdrom` attaches the boot image as a read-only CD instead (q35's default CD drive; a SCSI CD on `virt`), for the installer ISO (`make test-images`) |
 | `OVMF_CODE` | auto | Path to the UEFI firmware image; overrides `scripts/find-firmware.sh <arch>`. On aarch64 the image is padded to the 64 MiB `virt` flash size into `out/<arch>-<build>/firmware-aarch64.fd` |
 | `SOURCE_DATE_EPOCH` | `0` | Exported to the compiler for reproducible builds |
 
@@ -551,7 +553,8 @@ host dimension.
 `BUILD=release` and copies it, with `scripts/mkrelease.py`, to
 `out/release/<arch>/` (`RELEASE_DIR` overrides): `cosmoos-<arch>.img`
 (the signed live image), `cosmoos-<arch>.qcow2` and `cosmoos-<arch>.vmdk`
-(the same image for other hypervisors: `make vm-images`), `cosmoos-<arch>-BOOTX64.EFI` (`BOOTAA64.EFI`),
+(the same image for other hypervisors: `make vm-images`),
+`cosmoos-<arch>.iso` (the installer ISO: `make iso`), `cosmoos-<arch>-BOOTX64.EFI` (`BOOTAA64.EFI`),
 `cosmoos-<arch>-kernel.elf`, `cosmoos-<arch>-boot.tar`,
 `cosmoos-<arch>-cmdline`, `cosmoos-<arch>-manifest`,
 `cosmoos-<arch>-cosmo-upgrade` (the release's `cosmo-upgrade`, which an

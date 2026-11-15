@@ -4731,6 +4731,18 @@ was rerun and passed (job 115083358004); that runner was slow too, its
 boots 171-183 s, so the test's storm can form on a slow runner and this
 one was slower still in the storm's second.
 
+Later sightings on the other machine (the CI image, one container of 4
+CPUs), 2026-11-15. The ceesafec 0.47.1 bump's four-CPU debug boot:
+ready 0 times of 741, a tick gap of 944 ms (under TEST-28's entry). R1's
+ISO branch's matrix, the `QEMU_SMP=2` debug boot, `boot-test: FAIL after
+242.2s`, 1 of 528: 3365 completions, 3301 resubmitted, **ready 2944
+times and not 357** (89%, against the 90% the check asks), the longest
+tick gap 165 ms and a bystander's wait 222 ms (both under their 250 ms
+bounds): a storm that formed and stalled for part of its second. The
+same boot of the same tree, and of its base, passed twice each in
+alternation after the matrix, every `cosmofs-replay` 29.5 to 29.9 s
+(R1's ISO report).
+
 ## `net-netif-lifetime`: a queue count of every interface, 2026-10-14
 
 `SELFTEST: net-netif-lifetime ... FAIL: check failed:
@@ -5705,7 +5717,41 @@ watchdog's line (221627 ms; `blk-irq-budget` passed, its longest tick gap
 lines and entropy devices differ), so the spread between them is not the
 runner's speed alone.
 
-What is not known: what the slow mode is (the guest's scheduling at four CPUs, or QEMU's), and since when. No
+**The first sighting at two CPUs**, R1's ISO branch's matrix on the other
+machine (`f95da85b`), 2026-11-15: `make test-smp2` (two CPUs, NVMe with
+one MSI-X vector) timed out after 304.0 s with `self-test cosmofs-replay
+took 46379 ms (budget 40000 ms)` and the watchdog's line, 239550 ms of
+self-tests, `cosmofs-snap-reserved` 7084 ms, `blk-irq-budget` passing
+(tick gap 9 ms). Every other x86-64 boot of that matrix, the three
+four-CPU ones among them, took 30.2 to 36.0 s. Then the branch and its
+base (`e63ac6c0`, main's tree since #526), alternated on the same
+machine: `test-smp2` three times each, 28.5 to 29.5 s (base) and 28.8 to
+29.2 s (branch), and `QEMU_SMP=2` `make test` twice each, 29.5 to 29.9 s;
+all ten passed. So two CPUs are not proof against the slow mode: one of
+the twelve two-CPU boots of these two trees.
+
+Two more on CI, the same day, four CPUs. Main's run 43682912998 for
+#526's merge (`af5a8b66`), job `build, boot, analyze (x86_64, boots)`:
+the first boot failed after 277.9 s, `cosmofs-replay` 42043 ms and the
+watchdog's line (226140 ms of self-tests, `blk-irq-budget` passing, gap
+12 ms); the job rerun, attempt 2 passed. #527's run 43683617004
+(`7cfdcfb2`), the same job: `make test` passed (28237 ms, 180381 ms) and
+`test-guard` failed after 269.7 s (40605 ms and the watchdog's line,
+219019 ms; gap 13 ms).
+
+Read across runs, CI's x86-64 boots of one job fall into two groups
+about 1.6 times apart, as here: run 43611799799 (`4e7b3cc6`, 0.37.0),
+job `entropy boots`, 13.3 to 13.6 s and 21.0 to 21.8 s; 43675392749
+(`a76d5115`, 0.37.0), 16.2 to 17.6 and 26.5 to 26.8 s; 43682912998
+(0.48.1), 11.3 to 11.9 and 18.6 to 19.2 s. Which boot falls in which
+group changes between runs. One pattern, five runs and not a mechanism:
+the noentropy boot (no RNG device, a CPU without RDRAND) was in the fast
+group and the cpurng boot (RDRAND) in the slow one in both 0.37.0 runs
+(13550 and 16190 ms against 21838 and 26754), and the other way round in
+all three under 0.48.1 (36896, 37153 and 18791 against 23730, 23093 and
+11335). The default `make test` CPU has no RDRAND either.
+
+What is not known: what the slow mode is (the guest's scheduling, at four CPUs most often, or QEMU's), and since when. No
 budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
 
 ## lxtest killed by signal 12 in `test-entropy`'s second boot, x86-64, 2026-11-14

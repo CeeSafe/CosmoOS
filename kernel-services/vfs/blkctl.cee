@@ -16,7 +16,7 @@
 // defines (ADR 0080 §3.2).
 
 @header(
-    "kernel/blk.h", "kernel/bootinfo.h", "kernel/cred.h", "kernel/errno.h", "kernel/kmalloc.h", "kernel/log.h",
+    "kernel/blk.h", "kernel/bootinfo.h", "kernel/bootvol.h", "kernel/cred.h", "kernel/errno.h", "kernel/kmalloc.h", "kernel/log.h",
     "kernel/mutex.h", "kernel/part.h", "kernel/string.h", "kernel/vfs.h", "uapi/cosmo/blkctl.h",
 )
 extern "C" {
@@ -91,6 +91,7 @@ extern "C" {
     fn blk_find(name: *CChar) -> *mut blkdev;
     fn blkdev_put(bd: *mut blkdev);
     fn blk_is_test_disk(bd: *blkdev) -> bool;
+    fn bootvol_is(bd: *blkdev) -> bool;
     fn blk_part_info(bd: *blkdev, out: *mut PartInfo) -> bool;
     fn blk_part_any(disk: *blkdev) -> bool;
     fn blk_part_scan(disk: *mut blkdev, nparts: *mut u32) -> i32;
@@ -260,6 +261,10 @@ unsafe fn fillDev(d: *mut cosmo_blkctl_dev, bd: *mut blkdev, boot: borrow [u8; 1
     }
     if (blk_is_test_disk(bd as *blkdev)) {
         rec.flags = rec.flags | FLAG_TEST;
+    }
+    // The installer ISO's boot partition, which the boot archive carries (bootvol.cee): the boot device, a whole one.
+    if (bootvol_is(bd as *blkdev)) {
+        rec.flags = rec.flags | FLAG_BOOT;
     }
     var slot: [u64; 8] = [0; 8]; // a blk_part_info_t
     let pi = borrow mut slot as *mut [u64; 8] as *mut PartInfo;
