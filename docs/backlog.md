@@ -163,6 +163,7 @@ Open lines (struck lines are not counted):
 - **DRV-16** nice-to-have, L. A display interface for programs, cursor, 3D; Wi-Fi and Bluetooth; a desktop -- when hardware and a use case exist.
 - **DRV-17** nice-to-have, M. Hot-removal of a device that is not on PCIe (a USB disk under a mounted pool is handled by its own driver's disconnect only); roadmap 1.2 B3 did PCIe (out of its scope).
 - **DRV-18** correctness, M. x86-64 under QEMU `-accel kvm` with the emulated VT-d (`QEMU_IOMMU=1`, the default): the virtio block driver's first interrupt-driven queue never completes and the boot stops there (`docs/audit/2026-11-12-t2-faster-boot-report.md`). Cause not established; real hardware has a VT-d.
+- **DRV-19** correctness, S. The framebuffer console ignores `ESC [ J` and `ESC [ 1J` (`kernel/core/fbrules.cee` clears only for `2J`/`3J`), so BusyBox `clear` (`ESC [ H ESC [ J`) homes the cursor and erases nothing on a virtual machine's window; seen on Parallels 2026-11-15. `cosmo-welcome` clears with `2J` and is unaffected.
 
 ## Kernel modules
 
@@ -354,6 +355,7 @@ Open lines (struck lines are not counted):
 - ~~**USR-8** correctness, S. On the installed system `/run/svc` is on the root disk and nothing clears it at boot, so a pid file outlives its service; `svc`'s `running()` trusts any pid `kill(p, 0)` can signal, and a boot where another process has that pid says `svc: dropbear is already running` and never starts it. Seen on the Parallels VM 2026-10-23: `dropbear.pid` held 13 from 2026-10-22, pid 13 was `syslogd` at every boot, and ssh was refused through several boots and upgrades (cleared by hand). Clear `/run` at boot (or mount a ramfs on it), or check the pid is the service's supervisor.~~ Done by #446 (a fresh ramfs on `/run` at every boot; a pid file records the start time and is checked against the supervisor's cmdline; U14).
 - **USR-9** usability, S. The quiet screen shows init's and the services' lines as they print them: there is no one line per service started or failed, as a Linux distribution's boot has.
 - **USR-10** nice-to-have, S. BusyBox `passwd` warns `can't lock '/etc/shadow': Invalid argument` (and `/etc/passwd`), and syslogd logs it as `auth.err`: fcntl record locks are refused (EINVAL). The password is changed all the same (the landing terminal's second PR).
+- **USR-11** usability, S. On the live image the console shell is `cosmo-sh`, which does not run a `#!` script: `cosmo-welcome` typed there fails `Exec format error` (status 126), though v1.1.1's notes say it shows the welcome again (true on an installed system, whose shell is BusyBox `sh`). Seen 2026-11-15.
 
 ## VFS
 

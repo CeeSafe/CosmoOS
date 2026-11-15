@@ -243,6 +243,21 @@ the eighth (the next step wrote the same `boot-test.log`). The other 18
 matrix steps passed, the `QEMU_SMP=1` and `4` x86-64 debug boots of the
 same build among them, and the step was run again. Still unassigned.
 
+**Eleventh sighting, 2026-11-14, both attempts:** CI on main's merge of
+v1.1.1's record (`9f466e70`, documentation only; run 43639366568), the
+`user guide commands (macos, aarch64)` job (Homebrew QEMU 11.1.3,
+`edk2-stable202408`), session 1 (`installing.md:123`, the live image with
+a blank disk and a `virtio-net-pci`): both attempts' logs, 625 bytes each,
+are the sixth sighting's lines word for word, ending at `Image type X64
+can't be loaded on AARCH64 UEFI system` and the screen-clear sequences.
+The same job passed on the five main merges before it (`4e7b3cc6`,
+`24421af8`, `06575d37`, `727b4bba`, `fb2c9a61`), and its rerun passed.
+The seventh sighting's hypothesis, tested on the developer's Mac with the
+same QEMU and firmware build and that session's command (v1.1.1's AArch64
+image): launch to `cosmoboot-uefi` took 6.06 to 6.29 s in four boots with
+the NIC and four without, so the NIC's option ROM costs no measurable
+time there and does not explain a stall past 30 s. Still unassigned.
+
  The rule moved into
 `tests/boot/firmware_stall.py` and every harness boot uses it --
 `run_boot_test.py` (which had its own copy) and `install_test.Boot`
