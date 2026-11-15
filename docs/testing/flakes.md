@@ -5644,6 +5644,31 @@ Over the five runs from `727b4bba` to `4e4bcc68` the x86-64 boots' self-tests su
 `cosmofs-replay` took 11.6 to 41.9 s; the two failures are the two boots with the largest sums, so on CI a slow
 runner and the slow mode are not told apart by these numbers.
 
+The ceesafec 0.47.1 bump's matrix on the other machine, 2026-11-15
+(`docs/audit/2026-11-15-ceesafec-0471-report.md`): the four-CPU x86-64
+debug boot timed out with `cosmofs-replay` at 48889 ms and the watchdog's
+line, `blk-irq-budget` failing beside it (the next completion ready 0
+times of 741, a tick gap of 944 ms and a bystander's wait of 945 ms: the
+host held a vCPU, as in 2026-10-13's entry); run again, `blk-irq-budget`
+passed (ready 2186 of 2186, gap 9 ms) and the boot timed out again
+(53779 ms, `cosmofs-snap-reserved` 9212 ms). To tell the compiler from
+the machine, the same boot of the bump's base (main `9f466e70`, 0.37.0)
+and of the bump, alternated, three each:
+
+| boot | base (0.37.0) | bump (0.47.1) |
+|---|---|---|
+| 1 | 47938 ms, timed out | 36165 ms, PASS in 258.1 s |
+| 2 | 29383 ms, PASS in 240.9 s | 54359 ms, timed out |
+| 3 | 30091 ms, PASS in 242.1 s | 35885 ms, PASS in 261.0 s |
+
+Each compiler gives either mode. `lockdep-graph-bench` was 8.9 to 9.2 s
+in all six. The fast boots of the bump took 36 s against the base's 29
+to 30; the one- and two-CPU x86-64 boots and every AArch64 boot of the
+two trees' matrices agree within a few per cent (x86-64 `cosmofs-replay`
+29.0 to 29.9 s against 29.0 to 30.5), so the spread is the four-CPU
+x86-64 boot's, as the table above shows for the wake fix (31 to 36 s
+fast).
+
 What is not known: what the slow mode is (the guest's scheduling at four CPUs, or QEMU's), and since when. No
 budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
 

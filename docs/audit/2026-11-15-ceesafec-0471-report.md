@@ -32,7 +32,48 @@ ceeSC_0[] = "native\000"`).
 
 ## Validation
 
-FILLED IN WHEN THE MATRIX ENDS.
+On the other machine (the CI image, one container of 4 CPUs and 6 GiB,
+with 0.47.1's Linux build from the tree: Limits), 2026-11-15, both
+architectures one after the other, on `196d7f29` (the later commit is
+documents and CI's SHA). AArch64: `matrix: PASS`. x86-64: `matrix: FAIL`
+on the four-CPU debug boot alone, the slow mode of backlog TEST-28.
+
+| Step | x86-64 | AArch64 |
+|---|---|---|
+| debug, release, chaos and harness-retry builds, `make cee-check` | PASS | PASS |
+| `make host-test`, `make fuzz` | PASS | PASS |
+| `make analyze` | clean (15 baselined, 0 unexpected, 0 stale) | clean (15 baselined, 0 unexpected, 0 stale) |
+| debug `make test`, `QEMU_SMP=1` | PASS in 240.2 s | PASS in 279.3 s |
+| debug `make test`, `QEMU_SMP=2` | PASS in 240.6 s | PASS in 288.9 s |
+| debug `make test`, `QEMU_SMP=4` | FAIL after 304.0 s (timed out); again: FAIL after 304.5 s (timed out); alternated with the base, below: 2 of 3 PASS | PASS in 307.7 s |
+| `make test-smp2` | PASS in 243.7 s | PASS in 289.0 s |
+| `make test-chaos` | PASS in 243.2 s | PASS in 304.2 s |
+| `make test-harness-retry` | PASS in 263.9 s | PASS in 302.6 s |
+| `make BUILD=release test` | PASS in 20.3 s | PASS in 23.7 s |
+
+**The four-CPU boot.** The first run timed out with `self-test
+cosmofs-replay took 48889 ms (budget 40000 ms)`, the watchdog's line, and
+`blk-irq-budget` failing: the storm never formed (the next completion
+ready 0 times of 741, a tick gap of 944 ms, a bystander waiting 945 ms),
+the host holding a vCPU (flakes.md, 2026-10-13). The second passed
+`blk-irq-budget` (ready 2186 of 2186) and timed out in the slow mode
+again (`cosmofs-replay` 53779 ms). Two slow boots of one image are not a
+mechanism, so the bump's base (main `9f466e70`, ceesafec 0.37.0) and the
+bump were booted alternately, three each, on the same machine:
+
+| boot | base (0.37.0): `cosmofs-replay`, verdict | bump (0.47.1) |
+|---|---|---|
+| 1 | 47938 ms, timed out | 36165 ms, PASS in 258.1 s |
+| 2 | 29383 ms, PASS in 240.9 s | 54359 ms, timed out |
+| 3 | 30091 ms, PASS in 242.1 s | 35885 ms, PASS in 261.0 s |
+
+Each gives either mode, one in three slow here. The bump's fast boots
+took 36 s against the base's 30. Every other boot of the two trees'
+matrices agrees within a few per cent: x86-64 one- and two-CPU
+`cosmofs-replay` 29.0 to 29.9 s against 29.0 to 30.5 s, and AArch64 33.8
+to 36.3 s against 34.0 to 35.0 s. So that spread belongs to the four-CPU
+x86-64 boot, as TEST-28's entry shows (31 to 36 s in the fast mode).
+Recorded in flakes.md under TEST-28's entry. No budget was changed.
 
 ## Limits
 
