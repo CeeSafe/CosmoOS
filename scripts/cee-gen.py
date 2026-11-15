@@ -87,6 +87,9 @@ PORTS = [
     ("kernel/block/bootvol.cee", "kernel/block/bootvol.c",
      "The boot volume in the boot archive: the installer ISO's copy of the boot partition, a read-only block device "
      "(bootvol.h)", "kernel/include/kernel/bootvol.h", True),
+    ("kernel/memory/bootframes.cee", "kernel/memory/bootframes.c",
+     "The physical memory manager's walks of the boot memory map: the deferred frames, and the frames where "
+     "boot-time code ran written in place (bootframes.h)", "kernel/include/kernel/bootframes.h", True),
     ("kernel/block/blkserial.cee", "kernel/block/blkserial.c",
      "Disk serials: the printable ASCII drivers keep, and the self-tests' test disks (blk.h)",
      "kernel/include/kernel/blkserial.h", True),

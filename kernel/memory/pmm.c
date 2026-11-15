@@ -6,6 +6,7 @@
  * accounting lives here; the buddy itself is in buddy.c.
  */
 
+#include <kernel/bootframes.h>
 #include <kernel/bootinfo.h>
 #include <kernel/log.h>
 #include <kernel/page.h>
@@ -92,29 +93,6 @@ static void init_zones(pfn_t max_pfn)
     buddy_zone_init(&g_node.zones[PMM_ZONE_NORMAL], zone_names[PMM_ZONE_NORMAL], dma32_end, max_pfn);
 }
 
-static void mark_deferred(void)
-{
-    uint32_t n;
-    const struct cosmoboot_mem_entry *map = bootinfo_mem_map(&n);
-
-    for (uint32_t i = 0; i < n; i++) {
-        if (map[i].type != COSMOBOOT_MEM_USABLE && map[i].type != COSMOBOOT_MEM_LOADER_RECLAIMABLE)
-            continue;
-        paddr_t start = map[i].base;
-        paddr_t end = map[i].base + map[i].length;
-        if (start < pmm_hhdm_limit)
-            start = pmm_hhdm_limit;
-        if (start >= end)
-            continue;
-        for (pfn_t p = phys_to_pfn(start); p < phys_to_pfn(end); p++) {
-            struct page *page = pfn_to_page(p);
-            page->flags = (page->flags & ~PG_RESERVED) | PG_DEFERRED;
-            g_reserved_pages--;
-            g_deferred_pages++;
-        }
-    }
-}
-
 void pmm_init(void)
 {
     const struct cosmoboot_info *info = bootinfo_get();
@@ -144,6 +122,7 @@ void pmm_init(void)
         }
     }
 
+    pmm_write_boot_code_frames(0, pmm_hhdm_limit);   /* M52: before bootmem's first allocation */
     bootmem_init();
 
     size_t array_bytes = (size_t)pmm_max_pfn * sizeof(struct page);
@@ -161,7 +140,9 @@ void pmm_init(void)
     g_deferred_pages = 0;
 
     init_zones(pmm_max_pfn);
-    mark_deferred();
+    uint64_t deferred = pmm_mark_deferred(pmm_hhdm_limit);
+    g_reserved_pages -= deferred;
+    g_deferred_pages += deferred;
     bootmem_release_all(release_range);
     bootmem_seal();
     g_initialized = true;
@@ -374,6 +355,7 @@ void pmm_release_deferred(void)
             in_run = true;
         } else if (!deferred && in_run) {
             KASSERT(phys_in_direct_map(pfn_to_phys(p) - 1));
+            pmm_write_boot_code_frames(pfn_to_phys(run_start), pfn_to_phys(p));   /* M52 */
             release_range(run_start, p);
             released += p - run_start;
             in_run = false;

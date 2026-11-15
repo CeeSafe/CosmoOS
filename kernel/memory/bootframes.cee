@@ -1,0 +1,159 @@
+// bootframes.cee - The physical memory manager's walks of the boot memory map (docs/kernel/memory/design.md §2.5), in
+// CeeSafe. Its C interface, kernel/include/kernel/bootframes.h, is ceesafec's; pmm.c calls it from pmm_init and
+// pmm_release_deferred and keeps its own counts.
+//
+// Two walks. The frames the bootstrap direct map does not reach yet are flagged deferred, for pmm_release_deferred
+// once the VMM maps them (pmm.c's mark_deferred, which this replaces). And every frame where boot-time code ran --
+// LOADER_RECLAIMABLE: the loader's image and data, the firmware's boot services -- has each word read and stored back
+// before anything of the kernel's is put in it (invariant M52). Under QEMU's TCG translator a store to a page that
+// held translated code invalidates only the translations the store overlaps, and the page leaves the slow store path
+// only when none remain; the firmware's old code, which no kernel store reaches, otherwise kept every store to the
+// frame on that path for the rest of the boot: backlog TEST-28. No byte changes, because a firmware may leave a table
+// there that the kernel reads after pmm_init.
+
+@header("kernel/bootinfo.h", "kernel/page.h", "kernel/pmm.h")
+extern "C" {
+    struct cosmoboot_mem_entry {
+        base: u64;
+        length: u64;
+        @cname("type") kind: u32;
+        reserved: u32;
+    }
+    struct page {
+        flags: u32;
+        refcount: u32;
+    }
+
+    fn bootinfo_mem_map(count: *mut u32) -> *cosmoboot_mem_entry;
+    /// page.h's frame array and direct map (inline functions).
+    fn pfn_to_page(pfn: u64) -> *mut page;
+    fn phys_to_virt(pa: u64) -> *mut void;
+    fn phys_in_direct_map(pa: u64) -> bool;
+
+    // The values the C compiler checks (ADR 0080 §3.1).
+    const COSMOBOOT_MEM_USABLE: u32 = 1;
+    const COSMOBOOT_MEM_LOADER_RECLAIMABLE: u32 = 6;
+    const PG_RESERVED: u32 = 1;
+    const PG_DEFERRED: u32 = 32;
+    const PAGE_SIZE: u64 = 4096;
+    const PAGE_SHIFT: u32 = 12;
+}
+
+/// The LOADER_RECLAIMABLE frames written in place so far (M52). pmm_init and pmm_release_deferred run on one CPU at a
+/// time, and the self-test reads it after both.
+static BOOT_CODE_PAGES: AtomicU64 = AtomicU64.constant(0);
+
+/// The first frame number at or above `pa` (a map entry's base and length are page multiples).
+fn pfnUp(pa: u64) -> u64 => pa.wrappingAdd(PAGE_SIZE - 1) >> PAGE_SHIFT;
+
+/// pmm.c's step 5 (design.md §2.5): every USABLE or LOADER_RECLAIMABLE frame at or above `limit`, the end of the
+/// bootstrap direct map, flagged PG_DEFERRED instead of PG_RESERVED. Returns how many; pmm.c moves them from its
+/// reserved count to its deferred one.
+/// Safety: pmm_init's, with the frame array covering the map's RAM and every frame reserved.
+@export("pmm_mark_deferred")
+unsafe fn markDeferred(limit: u64) -> u64 {
+    var n: u32 = 0;
+    let map = bootinfo_mem_map(borrow mut n as *mut u32);
+    var marked: u64 = 0;
+    for (i in 0..n) {
+        let e = Ptr.toBorrow(map.add(i as usize));
+        if (e.kind != COSMOBOOT_MEM_USABLE && e.kind != COSMOBOOT_MEM_LOADER_RECLAIMABLE) {
+            continue;
+        }
+        let start = if (e.base < limit) limit else e.base;
+        let end = e.base + e.length;
+        if (start >= end) {
+            continue;
+        }
+        for (p in (start >> PAGE_SHIFT)..(end >> PAGE_SHIFT)) {
+            let page = Ptr.toBorrowMut(pfn_to_page(p));
+            page.flags = (page.flags & (PG_RESERVED ^ 0xFFFFFFFF)) | PG_DEFERRED;
+            marked += 1;
+        }
+    }
+    return marked;
+}
+
+/// M52: each LOADER_RECLAIMABLE frame in [lo, hi) has every word read and stored back through the direct map, so no
+/// byte changes, and is counted. The stores are volatile: a store of what was just loaded is otherwise one a C
+/// compiler may drop, and the store is the point.
+/// Safety: nothing of the kernel's is in these frames yet, and [lo, hi) is in the direct map; one CPU at a time.
+@export("pmm_write_boot_code_frames")
+unsafe fn writeBootCodeFrames(lo: u64, hi: u64) {
+    var n: u32 = 0;
+    let map = bootinfo_mem_map(borrow mut n as *mut u32);
+    var written: u64 = 0;
+    for (i in 0..n) {
+        let e = Ptr.toBorrow(map.add(i as usize));
+        if (e.kind != COSMOBOOT_MEM_LOADER_RECLAIMABLE) {
+            continue;
+        }
+        let start = if (e.base < lo) lo else e.base;
+        let end = if (e.base + e.length > hi) hi else e.base + e.length;
+        if (start >= end) {
+            continue;
+        }
+        for (p in pfnUp(start)..(end >> PAGE_SHIFT)) {
+            let w = phys_to_virt(p << PAGE_SHIFT) as *mut u64;
+            for (k in 0..(PAGE_SIZE / 8)) {
+                let q = w.add(k as usize);
+                q.writeVolatile(q.readVolatile());
+            }
+            written += 1;
+        }
+    }
+    let total = BOOT_CODE_PAGES.loadWith(LoadOrdering.Relaxed) + written;
+    BOOT_CODE_PAGES.storeWith(total, StoreOrdering.Relaxed);
+    if (written != 0) {
+        var buffer = [0u8; 160];
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("pmm: ");
+        line.decimal(written * (PAGE_SIZE >> 10));
+        line.text(" KiB where boot-time code ran written in place (loader and boot services)");
+        KernelLog.send(LogLevel.Info, line);
+    }
+}
+
+/// The self-test pmm-boot-code (M52): the frames written in place at boot are exactly the LOADER_RECLAIMABLE frames
+/// the direct map reaches, counted here from the memory map on its own, and there is at least one, the loader's image
+/// (EfiLoaderCode).
+/// Safety: `reason` writable; after pmm_release_deferred.
+@cfg("CONFIG_SELFTEST")
+@export("selftest_pmm_boot_code")
+unsafe fn selftestBootCode(reason: *mut *CChar) -> bool {
+    var n: u32 = 0;
+    let map = bootinfo_mem_map(borrow mut n as *mut u32);
+    var frames: u64 = 0;
+    for (i in 0..n) {
+        let e = Ptr.toBorrow(map.add(i as usize));
+        if (e.kind != COSMOBOOT_MEM_LOADER_RECLAIMABLE) {
+            continue;
+        }
+        for (p in pfnUp(e.base)..((e.base + e.length) >> PAGE_SHIFT)) {
+            if (phys_in_direct_map(p << PAGE_SHIFT)) {
+                frames += 1;
+            }
+        }
+    }
+    let written = BOOT_CODE_PAGES.loadWith(LoadOrdering.Relaxed);
+    {
+        var buffer = [0u8; 160];
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("selftest: pmm-boot-code: ");
+        line.decimal(frames);
+        line.text(" frames where boot-time code ran, ");
+        line.decimal(written);
+        line.text(" written in place at boot");
+        KernelLog.send(LogLevel.Info, line);
+    }
+    if (frames == 0) {
+        reason.write("check failed: the memory map has a LOADER_RECLAIMABLE frame (the loader's image)\0".ptr as *CChar);
+        return false;
+    }
+    if (written != frames) {
+        reason.write("check failed: every LOADER_RECLAIMABLE frame in the direct map written in place at boot\0".ptr
+            as *CChar);
+        return false;
+    }
+    return true;
+}
