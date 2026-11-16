@@ -556,3 +556,14 @@ processes release their spaces only through it. **Checked by** `lxtest`'s
 vfork case (the child writes the parent's memory and exits; the parent
 returns to that memory and goes on to fork again) and by every boot, whose
 exits all pass through `vm_space_put`.
+
+**M52. Every frame where boot-time code ran is written before the kernel
+uses it.** `pmm_init` stores each word of every LOADER_RECLAIMABLE frame
+the bootstrap direct map reaches back in place before bootmem's first
+allocation, and `pmm_release_deferred` does the same for the deferred
+ones before releasing them; no byte changes. Under QEMU's translator a
+frame that held translated code otherwise keeps every later store on the
+slow path (design.md §2.5; backlog TEST-28). **Checked by**
+`pmm-boot-code` (the frames written equal the LOADER_RECLAIMABLE frames
+the direct map reaches, counted from the memory map, and there is at
+least one: the loader's own image).

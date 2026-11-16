@@ -119,12 +119,18 @@ naturally aligned to their order by construction (`pfn ^ (1 << order)`).
 ### 2.5 Public PMM behaviour (`pmm.c`)
 
 - `pmm_init()`:
-  1. Validate the map; compute `phys_limit`, `max_pfn`.
+  1. Validate the map; compute `phys_limit`, `max_pfn`. Write in place
+     every LOADER_RECLAIMABLE frame the bootstrap direct map reaches,
+     before bootmem or the buddy puts anything of the kernel's in one
+     (`pmm_write_boot_code_frames`; M52, below).
   2. Build bootmem ranges.
   3. `bootmem_alloc` the page array (`max_pfn * 32` bytes); zero it; mark
      every page reserved with refcount 0.
   4. Initialise zones over their pfn ranges.
-  5. For each RAM entry above `hhdm_size`: flag pages `PG_DEFERRED`.
+  5. For each RAM entry above `hhdm_size`: flag pages `PG_DEFERRED`
+     (`pmm_mark_deferred`, which returns the count `pmm.c` moves from
+     reserved to deferred). Both walks of the map are CeeSafe,
+     `kernel/memory/bootframes.cee`; the rest of `pmm.c` is C.
   6. Release every remaining bootmem range into the buddy in maximal
      aligned power-of-two blocks (`pmm_free_range_core`).
   7. Log totals; seal bootmem.
@@ -153,7 +159,26 @@ naturally aligned to their order by construction (`pfn ^ (1 << order)`).
   The cost is one fill per free and one scan per allocation, debug
   builds only; the release build's `pmm_free_pages` is unchanged.
 - `pmm_release_deferred()`: called by `vmm_init` after the full direct map
-  exists; releases `PG_DEFERRED` runs into the buddy.
+  exists; writes in place the LOADER_RECLAIMABLE frames of each
+  `PG_DEFERRED` run (M52), then releases the run into the buddy.
+- **Frames where boot-time code ran are written once (M52).**
+  LOADER_RECLAIMABLE is the loader's image and data and the firmware's
+  boot services, code among them. Under QEMU's TCG translator, which
+  CI's boots and `make test` run, a store to a page that held
+  translated code invalidates only the translations the store overlaps,
+  and the page leaves the slow store path only when none remain
+  (QEMU's `accel/tcg/tb-maint.c`). The kernel's stores never reach the
+  firmware's old code, so a hot kernel object placed in such a frame
+  was stored to through that path for the rest of the boot: about
+  370 ns a store against 4. That was backlog TEST-28: in some boots the
+  boot thread's `struct thread`, which every debug `arch_irq_save` and
+  `arch_irq_restore` writes (lockdep's pairing), landed in one, and the
+  self-tests that take locks ran at half speed
+  (docs/audit/2026-11-15-test28-boot-code-frames-report.md). Each word
+  is read and stored back, so no byte changes: a firmware may leave a
+  table there that the kernel reads after `pmm_init` (ACPI is read
+  later), which zeroing would destroy. On hardware the cost is one pass
+  over these frames at boot, tens of MiB, and nothing else changes.
 - `pmm_free_reserved_range(paddr, size)`: for the boot page tables after
   takeover; pages must be `PG_RESERVED` and inside a
   `COSMOBOOT_MEM_BOOT_PAGETABLES` entry.

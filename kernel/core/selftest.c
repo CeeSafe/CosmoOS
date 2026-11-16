@@ -513,6 +513,7 @@ static const struct selftest tests[] = {
     { "trap-async-class", test_trap_async_class },
     { "trap-async-inject", test_trap_async_inject },
     { "pmm",             selftest_pmm },
+    { "pmm-boot-code",   selftest_pmm_boot_code },
     { "vmm",             selftest_vmm },
     { "user-vmm",        selftest_user_vmm },
     { "vm-direct-ranges", selftest_vm_direct_ranges },

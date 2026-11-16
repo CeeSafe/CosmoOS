@@ -3837,6 +3837,20 @@ See the [history index](README.md).
   - The matrix found `test_blkctl` and `test_part` not linking the new
     calls; each now checks them outside its C digest.
   - Report: `docs/audit/2026-11-15-r1-installer-iso-report.md`.
+- **TEST-28: frames where boot-time code ran (2026-11-15, #528).**
+  - The four-CPU x86-64 debug slow mode was QEMU's translator, not the
+    compiler (ceesafec 0.37.0 to 0.50.0 compared) nor the scheduler: the
+    boot thread's `struct thread`, written by every debug interrupt
+    save/restore, sometimes sat in a frame where firmware code had run,
+    and QEMU kept every store to that page on its slow path.
+  - `kernel/memory/bootframes.cee` (CeeSafe; `pmm.c`'s `mark_deferred`
+    moved there too) reads and stores back every word of the
+    LOADER_RECLAIMABLE frames before the kernel uses them (M52);
+    `pmm-boot-code` and `tools/boot-code-frames-probe.py`.
+  - AArch64's own slow `cosmofs-replay`, met while validating and on
+    main too, is a different mechanism (`crc32c`'s table sharing a slot
+    of QEMU's software TLB with its buffer): backlog TEST-29.
+  - Report: `docs/audit/2026-11-15-test28-boot-code-frames-report.md`.
 - **The VMDK's second CID draw (2026-11-16).**
   - qemu-img rewrites the CID it drew in place with a second draw
     (`vmdk_write_cid`); a second CID two or more digits shorter leaves up

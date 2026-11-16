@@ -20,6 +20,7 @@ int selftest_run_all(void);
 /* Test entry points provided by subsystems. Each returns true on success
  * or sets *reason to an immortal string and returns false. */
 bool selftest_pmm(const char **reason);
+bool selftest_pmm_boot_code(const char **reason);   /* bootframes.cee */
 bool selftest_vmm(const char **reason);
 bool selftest_asid_alloc(const char **reason);      /* kernel/memory/memtest.c: tags, generations, rollover */
 bool selftest_asid_isolation(const char **reason);  /* two spaces, one address, no flush between them */
