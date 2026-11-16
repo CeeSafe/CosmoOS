@@ -13,7 +13,9 @@ the release workflow's two builds): QCOW2 is a pure function of its input.
 A VMDK's embedded descriptor names the file itself in its extent line, so
 it is converted under its final name, in a directory of its own beside it;
 and it carries a content id (CID) qemu-img draws at random and prints
-unpadded (`CID=%x`: one draw in sixteen has seven digits or fewer). This
+unpadded (`CID=%x`: one draw in sixteen has seven digits or fewer), and
+it draws twice, the second CID rewritten in place over the first, which
+can leave up to six bytes of the first text after the second's end. This
 script rewrites the descriptor's whole region, the sectors the sparse
 header names, with the CID set to the first eight hex digits of the raw
 image's SHA-256 and the text padded with zeros to the region's end, so
@@ -31,6 +33,22 @@ import tempfile
 SECTOR = 512
 
 
+def only_stale_tail(region, text):
+    """Whether the descriptor region holds nothing after `text` but what
+    qemu-img's second CID draw leaves there. qemu-img writes the descriptor
+    with one random CID and, on the conversion's first data write, rewrites
+    it in place with another (`vmdk_write_cid`, block/vmdk.c): the new text
+    and its NUL go over the old, and the rest of the region is written back
+    as it was read. A CID shorter by k digits ends the text k bytes sooner
+    and leaves the old text's last k - 1 bytes after the new NUL; those are
+    the new text's last k - 1 bytes too, since the text after the CID line
+    is copied unchanged. k is at most 7 (eight digits to one), so the tail
+    is at most six bytes, the text's own end, and zeros follow it."""
+    rest = region[len(text) + 1:]
+    tail = rest.split(b"\0", 1)[0]
+    return len(tail) <= 6 and text.endswith(tail) and not any(rest[len(tail):])
+
+
 def set_cid(f, cid, name):
     """Rewrite the embedded descriptor of the monolithicSparse VMDK open as
     `f` with CID `cid` (8 hex digits); `name` is the file's, for messages
@@ -42,7 +60,7 @@ def set_cid(f, cid, name):
     f.seek(desc_offset * SECTOR)
     region = f.read(desc_size * SECTOR)
     text = region.split(b"\0", 1)[0]
-    if any(region[len(text):]):
+    if not only_stale_tail(region, text):
         sys.exit(f"mkvmimages: {name}: the descriptor region holds bytes after its text")
     new, n = re.subn(rb"(?m)^CID=[0-9a-f]{1,8}$", b"CID=" + cid, text)
     if n != 1:
