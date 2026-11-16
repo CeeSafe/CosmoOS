@@ -4741,7 +4741,11 @@ tick gap 165 ms and a bystander's wait 222 ms (both under their 250 ms
 bounds): a storm that formed and stalled for part of its second. The
 same boot of the same tree, and of its base, passed twice each in
 alternation after the matrix, every `cosmofs-replay` 29.5 to 29.9 s
-(R1's ISO report).
+(R1's ISO report). The TEST-28 branch at `a2b36824`, AArch64
+`test-chaos`, 2026-11-15/16: a default-priority bystander waited 282 ms
+(bound 250); the boot's log was not kept, so the storm's other counts
+are not known. The same commit's next AArch64 matrix passed
+`test-chaos` in 311.2 s. Not attributed.
 
 ## `net-netif-lifetime`: a queue count of every interface, 2026-10-14
 
@@ -5637,8 +5641,8 @@ at every installed boot. Proof: `sched-wake-moved`, `tools/wake-moved-probe.py`.
 
 ## x86-64 four-CPU debug boots have a slow mode: `cosmofs-replay` at 53 s against 35 s, 2026-11-14
 
-Unexplained; backlog TEST-28. A four-CPU x86-64 debug boot runs in one of two modes, and the same image on the
-same idle machine gives either. On the other machine (the CI image, one container of 4 CPUs), 2026-11-14:
+Explained and fixed, 2026-11-15 (end of this entry; backlog TEST-28). A four-CPU x86-64 debug boot runs in one of
+two modes, and the same image on the same idle machine gives either. On the other machine (the CI image, one container of 4 CPUs), 2026-11-14:
 
 | tree | `QEMU_SMP=4` `make test` | `test-chaos` | `test-harness-retry` |
 |---|---|---|---|
@@ -5751,8 +5755,44 @@ group and the cpurng boot (RDRAND) in the slow one in both 0.37.0 runs
 all three under 0.48.1 (36896, 37153 and 18791 against 23730, 23093 and
 11335). The default `make test` CPU has no RDRAND either.
 
-What is not known: what the slow mode is (the guest's scheduling, at four CPUs most often, or QEMU's), and since when. No
-budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
+No budget was changed: the bound is not what is wrong when the same boot takes 35 s or 53 s.
+
+**The mechanism, 2026-11-15** (docs/audit/2026-11-15-test28-boot-code-frames-report.md). Not the guest's scheduling
+and not the compiler: QEMU's translator and the frames where boot-time code ran. The boot thread `kmain` runs the
+self-tests, and every debug `arch_irq_save`/`arch_irq_restore` writes its `struct thread` (lockdep's pairing). In
+slow boots that structure sat in a LOADER_RECLAIMABLE frame (phys `0xfec4040`), where the firmware's code had run;
+QEMU invalidates on a store only the translations the store overlaps and leaves the page on the slow store path
+while any remain, so every store to it took about 370 ns against 4.4 (loads 4.4 in both). Rewriting that page in
+place mid-boot made its stores 4.4 ns at once and the rest of the boot fast. Which frame `kmain` gets changes from
+boot to boot and with any change of size, which is why trees, compilers and even one added archive file moved the
+odds. The middle mode (about 37 s) is the same effect on other objects. The fix (M52, docs/kernel/memory/design.md
+§2.5): `pmm_init` and `pmm_release_deferred` read and store back every word of the LOADER_RECLAIMABLE frames before
+anything of the kernel's is put in them. With it, the matrix on the other machine passed all seven x86-64 boots,
+and in five four-CPU boots alternated with main's five, the fix's `cosmofs-replay` took 29.6 to 30.2 s every
+time, main's 55.3 s once (timed out) and 35.2 to 36.2 s four times.
+
+## AArch64 debug boots have a slow mode of their own: `crc32c` at a TLB slot shared with its buffer, 2026-11-16
+
+Explained, not fixed; backlog TEST-29. Not TEST-28's mechanism. On the other machine (the CI image, one container of
+4 CPUs), AArch64 debug `make test-smp2`, 2026-11-16: main `d2392534` two slow boots of three (`cosmofs-replay` 50.9
+and 51.6 s against 34.3; the boot FAIL over the test's 40 s bound), the forms of the TEST-28 branch tried 0 to 3 of
+3 to 8 each, and in one matrix `test-chaos` at 40.6 s. Main's earlier six of six fast, and one form's, were chance.
+
+Only `cosmofs-replay` slows: against a fast boot of the same image, 16.4 s of its 17.4 s difference in all 529
+self-tests. Every vCPU's PC sampled each 20 ms over QMP (`info registers -a`): `crc32c` 891 samples against 165 in
+five fast boots (+14.5 s). Its loop only loads (`ldrb` from the buffer, `ldr` from the 1 KiB table at
+`0xffffffff80240a50`; main's at `...408a8`, the same page). Sampling X0 too, in eight branch boots (four slow) and
+three of main (two slow), the loop's hottest page was the same buffer in every boot, `0xffff80004d940` (once on main
+`...4e540`), 77 to 91 samples in fast boots and 740 to 878 in slow ones. Both pages fall in slot 0x40 of QEMU's
+direct-mapped software TLB at 64 or 256 entries and in different slots at 512 or more. QEMU 10.0 sizes that table
+per CPU from 64 entries up at each flush by its use over the last 100 ms of host time (`tlb_mmu_resize_locked`,
+`accel/tcg/cputlb.c`), which is the boot-to-boot chance: at the small sizes each byte's two loads evict each other
+through the 8-entry victim TLB.
+
+**Cause, not correlation.** The branch with nothing changed but `.rodata` starting one page later (table at
+`0xffffffff80241a50`, slot 0x41; buffer unchanged) booted fast eight times of eight (`cosmofs-replay` 34.5 to 35.3
+s), against four of eight slow for the same branch unpadded that day. No budget was changed. Main's CI runners have
+not shown it; their recent AArch64 boots pass.
 
 ## lxtest killed by signal 12 in `test-entropy`'s second boot, x86-64, 2026-11-14
 

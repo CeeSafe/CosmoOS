@@ -50,6 +50,7 @@ KERNEL_GENERIC_SRCS := \
 	kernel/memory/asid.c \
 	kernel/memory/buddy.c \
 	kernel/memory/pmm.c \
+	kernel/memory/bootframes.c \
 	kernel/memory/vmm.c \
 	kernel/memory/slab.c \
 	kernel/memory/kmalloc.c \
