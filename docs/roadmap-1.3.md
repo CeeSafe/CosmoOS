@@ -26,7 +26,7 @@ Facts on 2026-11-11:
   run on another hypervisor, a cloud or a physical machine, and the user
   guide ([`docs/guide/`](guide/README.md)) tells how to install it under
   QEMU, with a page for Parallels, and nowhere else.
-- CeeSafe released 0.8.0 to 0.31.0 in ten days. CosmoOS pinned 0.24.2 until 2026-11-11, pinned 0.33.0 on 2026-11-11, 0.37.0 from 2026-11-12, and pins 0.48.1 since 2026-11-15.
+- CeeSafe released 0.8.0 to 0.31.0 in ten days. CosmoOS pinned 0.24.2 until 2026-11-11, pinned 0.33.0 on 2026-11-11, 0.37.0 from 2026-11-12, 0.48.1 from 2026-11-15, and pins 0.57.1 since 2026-11-16.
 
 So the kernel is getting safer and nobody can use it. This roadmap puts
 the release first, bounds the conversion, and asks of CeeSafe only what
