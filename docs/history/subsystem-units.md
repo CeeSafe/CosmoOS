@@ -3851,3 +3851,8 @@ See the [history index](README.md).
     main too, is a different mechanism (`crc32c`'s table sharing a slot
     of QEMU's software TLB with its buffer): backlog TEST-29.
   - Report: `docs/audit/2026-11-15-test28-boot-code-frames-report.md`.
+- **ceesafec pinned at 0.57.1 (2026-11-16).**
+  - From 0.48.1, at the owner's request. No `.cee` source changed; every
+    kernel object on both architectures, release and debug, is the same
+    code and data under both compilers.
+  - Report: `docs/audit/2026-11-16-ceesafec-0571-report.md`.
