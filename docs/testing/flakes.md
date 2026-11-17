@@ -3011,6 +3011,22 @@ it; `SHTEST: FAIL 1` and the missing `lxpty` markers are this one check.
 Not attributed; two sightings, both AArch64, both under a test-only
 kernel variant (`test-chaos`, the harness-retry kernel).
 
+**Third sighting, 2026-11-17:** CI, `entropy boots (aarch64)` on PR #530
+(the ceesafec 0.57.1 pin, at its merge of main `594c3340`; run
+44046625883, job 133914278385), in `test-entropy`'s fourth boot, the
+virtio-rng-only one (`boot-test-devrng.log`): the same line, `status
+8960`, after `lxpty: pty ok`. The session child (pid 642) forked the job
+twice: 643 exited 130, and 644 -- stopped, continued and killed -- exited
+0 after 5 system calls. No self-test failed; `SHTEST: FAIL 1` and the two
+missing `lxpty` markers are this one check. The job's three earlier boots
+of the same image passed it, and so did the branch's previous head
+(`ad18648d`, run 43895797428), whose kernel and tests are the same. The
+pin cannot be the cause: every kernel object built by 0.57.1 has the same
+disassembly and data as 0.48.1's
+([report](../audit/2026-11-16-ceesafec-0571-report.md)). Not attributed;
+three sightings, all AArch64, and this one under a plain debug kernel, so
+"a test-only variant" no longer describes them.
+
 ## `sched-restore-loop`: one trip short, 2026-10-13
 
 `SELFTEST: sched-restore-loop ... FAIL: check failed: runs ==
