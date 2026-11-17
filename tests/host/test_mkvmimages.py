@@ -8,8 +8,15 @@ jobs of #525's CI run 43650889097). On synthetic sparse VMDKs:
 - descriptors that differ only in qemu-img's CID, eight digits and seven
   and one, come out byte for byte the same, with the CID given and the
   text padded with zeros to the region's end;
+- qemu-img draws the CID twice and rewrites the second over the first in
+  place (`vmdk_write_cid`), so a second CID k digits shorter leaves the
+  first text's last k - 1 bytes after the second's NUL; the second
+  version refused those as "bytes after its text" (the AArch64 release
+  set of #528's CI run 43827130336). Eight digits redrawn as six or as
+  one give the same file as the rest;
 - a descriptor with no CID line, or two, is refused, and so is one whose
-  extent line names another file, and a region with bytes after its text.
+  extent line names another file, and a region with bytes after its text
+  other than up to six of its text's last bytes right after its NUL.
 
 With qemu-img (check-tools requires it): mkvmimages.py makes a VMDK that
 `qemu-img check` finds clean and `qemu-img compare` finds equal to the raw
@@ -17,7 +24,7 @@ image, and the same raw image converted twice gives the same QCOW2 and the
 same VMDK; and through a qemu-img that forces the CID it draws to eight,
 seven or one digits, the VMDK is the same each time (the first version
 failed the last two with "no CID line in the embedded descriptor", as CI
-did).
+did), and so it is when it redraws eight digits as one in place.
 """
 import hashlib
 import io
@@ -53,6 +60,18 @@ def synthetic(cid, name="disk.vmdk", extra=b"", tail=b"", cids=1):
     return head + region + b"\0" * 512
 
 
+def redrawn(data, cid):
+    """`data` after qemu-img's second draw, as `vmdk_write_cid` (block/vmdk.c) makes it: the region read whole,
+    the CID printed unpadded after the first "CID" with a newline and a NUL, the text from "parentCID" on appended
+    after it, and the whole region written back, so a shorter CID leaves the old text's end after the new NUL."""
+    region = bytearray(data[512:512 + 20 * 512])
+    rest = bytes(region[region.index(b"parentCID"):region.index(b"\0")])
+    at = region.index(b"CID") + len(b"CID=")
+    new = cid + b"\n" + rest + b"\0"
+    region[at:at + len(new)] = new
+    return data[:512] + bytes(region) + data[512 + 20 * 512:]
+
+
 def patched(data, name="disk.vmdk"):
     f = io.BytesIO(data)
     mkvmimages.set_cid(f, b"0123abcd", name)
@@ -80,8 +99,22 @@ def synthetic_cases():
     check("no single CID line" in (refused(synthetic(b"1", cids=2)) or ""), "a descriptor with two CIDs is refused")
     check("does not name the file" in (refused(synthetic(b"1"), "other.vmdk") or ""),
           "an extent line naming another file is refused")
+    for first, second in ((b"fedcba98", b"edcba9"), (b"fedcba98", b"1")):
+        data = redrawn(synthetic(first), second)
+        region = data[512:512 + 20 * 512]
+        left = region[region.index(b"\0") + 1:].split(b"\0", 1)[0]
+        why = refused(data)
+        check(len(left) == len(first) - len(second) - 1 and why is None and patched(data) == long_,
+              f"qemu-img's CID {first.decode()} redrawn as {second.decode()}, {len(left)} bytes of the first text "
+              f"left after the second's end, gives the same file ({why or 'no message'})")
     check("bytes after its text" in (refused(synthetic(b"1", tail=b"x")) or ""),
           "a region with bytes after its text is refused")
+    text = synthetic(b"1")[512:].split(b"\0", 1)[0]
+    for left, what in ((b"x\"\n", "that are not its text's end"), (text[-7:], "seven bytes of its text's end")):
+        data = bytearray(synthetic(b"1"))
+        data[512 + len(text) + 1:512 + len(text) + 1 + len(left)] = left
+        check("bytes after its text" in (refused(bytes(data)) or ""),
+              f"a region with bytes after its text's NUL {what} is refused")
     check("not a sparse VMDK" in (refused(b"\0" * 4096) or ""), "a file with no sparse header is refused")
 
 
@@ -110,8 +143,9 @@ def qemu_cases():
         check(outs[0][0] == outs[1][0], "two conversions give the same QCOW2")
         check(outs[0][1] == outs[1][1], "two conversions give the same VMDK")
 
-        # The draw itself, forced: a qemu-img that converts, then sets the CID it drew to FORCE_CID, unpadded as
-        # qemu-img prints it (the text one byte shorter for seven digits, the region's zeros one longer).
+        # The draws themselves, forced: a qemu-img that converts, then sets the CID it drew to FORCE_CID, unpadded
+        # as qemu-img prints it (the text one byte shorter for seven digits, the region's zeros one longer); and
+        # with FIRST>SECOND, sets FIRST so and then SECOND as vmdk_write_cid does, over it in place.
         wrap = os.path.join(d, "bin")
         os.mkdir(wrap)
         with open(os.path.join(wrap, "qemu-img"), "w") as f:
@@ -119,18 +153,24 @@ def qemu_cases():
 import os, re, subprocess, sys
 r = subprocess.run([{shutil.which("qemu-img")!r}] + sys.argv[1:]).returncode
 if r == 0 and sys.argv[1] == "convert" and "vmdk" in sys.argv:
+    first, _, second = os.environ["FORCE_CID"].partition(">")
     with open(sys.argv[-1], "r+b") as f:
         f.seek(512)
         region = f.read(20 * 512)
         text = region.split(b"\\0", 1)[0]
-        text = re.sub(rb"(?m)^CID=[0-9a-f]+$", b"CID=" + os.environ["FORCE_CID"].encode(), text)
+        text = re.sub(rb"(?m)^CID=[0-9a-f]+$", b"CID=" + first.encode(), text)
+        region = bytearray(text + bytes(len(region) - len(text)))
+        if second:
+            at = region.index(b"CID") + 4
+            new = second.encode() + b"\\n" + bytes(region[region.index(b"parentCID"):len(text)]) + b"\\0"
+            region[at:at + len(new)] = new
         f.seek(512)
-        f.write(text + bytes(len(region) - len(text)))
+        f.write(region)
 sys.exit(r)
 """)
         os.chmod(os.path.join(wrap, "qemu-img"), 0o755)
         forced = {}
-        for c in ("fedcba98", "edcba98", "1"):
+        for c in ("fedcba98", "edcba98", "1", "fedcba98>1"):
             out = os.path.join(d, "forced-" + c)
             os.mkdir(out)
             env = dict(os.environ, PATH=wrap + os.pathsep + os.environ["PATH"], FORCE_CID=c)
@@ -141,6 +181,8 @@ sys.exit(r)
             forced[c] = open(v, "rb").read() if r.returncode == 0 else None
         check(forced["fedcba98"] is not None and forced["fedcba98"] == forced["edcba98"] == forced["1"] == outs[0][1],
               "qemu-img's CID of eight, seven or one digits gives the same VMDK")
+        check(forced["fedcba98>1"] is not None and forced["fedcba98>1"] == outs[0][1],
+              "qemu-img's CID of eight digits redrawn as one, in place, gives the same VMDK")
 
 
 synthetic_cases()

@@ -3851,3 +3851,11 @@ See the [history index](README.md).
     main too, is a different mechanism (`crc32c`'s table sharing a slot
     of QEMU's software TLB with its buffer): backlog TEST-29.
   - Report: `docs/audit/2026-11-15-test28-boot-code-frames-report.md`.
+- **The VMDK's second CID draw (2026-11-16).**
+  - qemu-img rewrites the CID it drew in place with a second draw
+    (`vmdk_write_cid`); a second CID two or more digits shorter leaves up
+    to six bytes of the first text after the new NUL, which
+    `scripts/mkvmimages.py` refused (#528's AArch64 release set, run
+    43827130336). The script now accepts exactly those bytes and still
+    pads them away; `tests/host/test_mkvmimages.py` models the rewrite.
+  - Report: `docs/audit/2026-11-16-vmdk-redraw-report.md`.
