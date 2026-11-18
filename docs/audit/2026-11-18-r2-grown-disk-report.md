@@ -146,28 +146,34 @@ mounts (design.md, "The member table"). Growing it is the next PR.
 
 ## Validation
 
-`make matrix` on `5c97ee3b` (the code; later commits are documents):
-AArch64 on the developer's Mac, x86-64 on the other machine in the CI
-image with the pinned ceesafec 0.57.1 (the matrix's tree copy had removed
-it there, and the image has no `qemu-img`: the first two x86-64 runs failed
-every step for those reasons, nothing of the change's; the third installed
-`qemu-utils` in its container).
+`make matrix` and `make BUILD=release test-install` on `00088bb6`, both
+architectures on the other machine, in the CI image with the pinned
+ceesafec 0.57.1 and a fresh `out/` (a kept `out/` had held objects older
+than a header the tree copy changed, and its x86-64 debug boots panicked
+in a cosmofs unmount; with `out/` wiped they pass, and they passed on the
+Mac). The image has no `qemu-img`; each run installed `qemu-utils`.
 
 | step | x86-64 | AArch64 |
 |---|---|---|
 | builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
 | `host-test`, `fuzz` | PASS | PASS |
-| `analyze` | clean, 15 baselined | clean, 14 baselined |
-| debug `test`, `QEMU_SMP=1` / `2` / `4` | 228.2 / 241.4 / 244.0 s | 178.7 / 173.6 s / see below |
-| `test-smp2`, `test-chaos`, `test-harness-retry` | 240.7 / 244.4 / 245.3 s | 192.7 / 231.6 / 213.5 s |
-| release `test` | 18.6 s | 24.3 s |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 230.3 / 240.1 / 244.3 s | 275.2 / 285.7 / 302.8 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 236.8 / 240.1 / 244.5 s | 283.7 / 301.5 / 302.7 s |
+| release `test` | 18.8 s | 23.2 s |
+| release `test-install` | 221.8 s | 320.0 s |
 
-AArch64 `QEMU_SMP=4` failed in the matrix with `process-user` at 23090 ms
-against its 15 s bound while another session's CeeSafe contract suite and
-the Parallels VM loaded the Mac (load average 11.75 / 65.28 / 77.76); run
-again alone with the one-minute load at 6.96: PASS in 209.3 s,
-`process-user` 6770 ms (`docs/testing/flakes.md`, the entry of this date).
-`make BUILD=release test-install`: PASS on both (above).
+`test-install`'s stages on both: install, reboot, persist, grow (524288
+-> 2097152 sectors; root 391135 -> 1963999 sectors; both table copies
+read by the host at the new end; the pool 48891 -> 245499 blocks; 208 MiB
+written), grow-again (nothing to do, nothing said; the root checked clean,
+`/big` read back), fallback. grow took 111.1 s on x86-64 and 166.4 s on
+AArch64.
+
+An earlier AArch64 `QEMU_SMP=4` run on the developer's Mac failed with
+`process-user` at 23090 ms against its 15 s bound under other sessions'
+load (load average 11.75 / 65.28 / 77.76) and passed alone in 209.3 s;
+`docs/testing/flakes.md` records it.
 
 ## Limits
 
