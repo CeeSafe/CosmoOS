@@ -138,6 +138,13 @@ which changes nothing under `tests/host/` or in the quiesce code. The
 x86-64 `make host-test` of the same tree passed on the other machine at
 the same time. Nothing was changed.
 
+**Fourth sighting, 2026-11-18:** `tests/host/test_quiesce.c:426`
+(`saw_new_cpu`) alone, in a `gmake -j4 host-test` on the developer's Mac
+during roadmap 1.3 R2's third PR (a static IPv4 address; `pipe_floor.c`
+into `pipe.cee`), the one-minute load average between 98 and 138 (other
+sessions' CeeSafe builds and applications). The next run of the same tree,
+the load at 38, passed. Nothing was changed.
+
 **Observed once, firmware handover in `test-harness-retry` (2026-10-09):**
 the first x86-64 QEMU process printed no `cosmoboot-uefi` banner during the
 30 s handover window, so `tests/boot/run_boot_test.py` killed it and
