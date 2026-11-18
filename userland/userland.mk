@@ -9,7 +9,7 @@ USER_LD := $(ROOT)/userland/user.ld
 # name := directory
 USER_BIN_PROGRAMS  := sh echo cat ls cp mv rm mkdir mkfifo rmdir pwd true false sleep sync
 USER_SBIN_PROGRAMS := mount umount ps kill dmesg sysctl vmctl hostname svc fsctl cosmo-install cosmo-upgrade cosmo-verify netcfg priv ip syslogd \
-	lsblk blkid mkfs.cosmofs cosmo-snap fsck.cosmofs cosmo-pool cosmo-key cosmo-grow
+	lsblk blkid mkfs.cosmofs cosmo-snap fsck.cosmofs cosmo-pool cosmo-key cosmo-grow cosmo-seed
 
 PROG_DIR_sh     := shell
 PROG_DIR_echo   := coreutils
@@ -69,6 +69,9 @@ PROG_DIR_mkfs.cosmofs := system
 # Roadmap 1.3 R2: a copied image fitted to its disk (docs/userland/design.md, "First boot without a console").
 PROG_DIR_cosmo-grow := system
 PROG_EXTRA_SRCS_cosmo-grow := userland/system/install_gpt.c
+# Roadmap 1.3 R2: the SSH key, host name and network from a NoCloud seed.
+PROG_DIR_cosmo-seed := system
+PROG_EXTRA_SRCS_cosmo-seed := userland/system/blkdevs.c userland/system/seed_read.c userland/system/seed_yaml.c
 PROG_EXTRA_SRCS_mkfs.cosmofs := userland/system/blkdevs.c
 
 # Test-only programs: built and archived under SELFTEST, so a release
