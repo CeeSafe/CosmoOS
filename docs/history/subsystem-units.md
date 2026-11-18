@@ -3864,3 +3864,18 @@ See the [history index](README.md).
     kernel object on both architectures, release and debug, is the same
     code and data under both compilers.
   - Report: `docs/audit/2026-11-16-ceesafec-0571-report.md`.
+- **R2, first PR: a disk that grew keeps its partitions (2026-11-18, roadmap 1.3).**
+  - The design note for R2 (`docs/userland/design.md`, "First boot without
+    a console"): the owner chose a prebuilt installed image that grows,
+    and a seed read from ISO 9660 or FAT.
+  - `gpt.cee` (CeeSafe) accepts a table whose backup header is where the
+    primary says, past the usable range and short of the last sector (an
+    image copied to a larger disk), and reports it in `gpt_table.backup_lba`;
+    `part.cee` logs the disk as grown. A backup past the end or inside the
+    usable range is refused with its own reason.
+  - `cosmo-grow --table`, run by init before the root is unlocked or
+    mounted: a table exactly as `gpt_build` writes it moves to the disk's
+    end, backup first, and the root partition, when last, grows to it.
+  - `test-install`'s `grow` and `grow-again` stages (a copy four times as
+    long; the next boot quiet).
+  - Report: `docs/audit/2026-11-18-r2-grown-disk-report.md`.
