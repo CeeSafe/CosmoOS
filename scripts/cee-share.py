@@ -39,6 +39,7 @@ USERLAND = ("libc", "userland", "pkg")
 # can ask why it cannot be CeeSafe.
 FLOOR = (
     "kernel/ceesafe/ceesafe_panic.c",     # CeeSafe's runtime shim; the rest of it (ceesafe_rt_core.c, rt.h) is generated
+    "userland/lib/ceesafe_panic.c",       # the same shim for the user programs (roadmap 1.3 R2)
 )
 
 GENERATED = re.compile(rb"GENERATED: do not edit")

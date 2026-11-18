@@ -1,0 +1,47 @@
+// fwcfg.cee - Boot parameters from the platform's firmware configuration, in CeeSafe: the source of
+// kernel/core/fwcfg.c, which `make cee` generates (scripts/cee-gen.py; roadmap 1.3 R2 ported it, the CeeSafe rule's
+// offset for R2's C). The API is kernel/include/kernel/fwcfg.h; the reader is the architecture's
+// (arch/fwcfg.h). The C it replaced formatted the name with ksnprintf into 64 bytes; this builds the same name,
+// truncated the same way, and terminates the value the same way.
+
+@header("kernel/fwcfg.h", "arch/fwcfg.h", "kernel/string.h")
+extern "C" {
+    @effects()
+    fn strlen(s: *CChar) -> usize;
+    fn arch_fwcfg_read(name: *CChar, buf: *mut void, len: usize) -> i32;
+}
+
+/// The key's prefix, "opt/cosmo/", the room the name has with its terminator.
+const PREFIX: StringView = "opt/cosmo/";
+const NAME_MAX: usize = 64;
+
+/// fwcfg.h's fwcfg_get_string: a NUL-terminated copy of "opt/cosmo/<key>" into `buf`; true if present.
+/// Safety: `key` is a terminated string; `buf` holds `len` bytes.
+@export("fwcfg_get_string")
+unsafe fn getString(key: *CChar, buf: *mut CChar, len: usize) -> bool {
+    if (len == 0) {
+        return false;
+    }
+    var name = [0u8; NAME_MAX];
+    var n: usize = 0;
+    for (i in 0..PREFIX.length) {
+        name[n] = PREFIX[i];
+        n += 1;
+    }
+    let k = Slice.fromRaw(key as *u8, strlen(key));
+    for (i in 0..k.length) {
+        if (n == NAME_MAX - 1) {
+            break; // ksnprintf's truncation: the terminator stays
+        }
+        name[n] = k[i];
+        n += 1;
+    }
+    let got = arch_fwcfg_read(borrow name as *[u8; NAME_MAX] as *CChar, buf as *mut void, len - 1);
+    if (got < 0) {
+        return false;
+    }
+    let read = truncate<usize>(got as i64); // got >= 0 here
+    let end = if (read < len - 1) read else len - 1;
+    (buf as *mut u8).add(end).write(0);
+    return true;
+}

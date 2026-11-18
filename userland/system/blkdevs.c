@@ -120,20 +120,6 @@ int blkdevs_flush(const struct cosmo_blkctl_dev *d)
     return rc < 0 ? (int)rc : 0;
 }
 
-int blkdevs_rescan(const char *disk, unsigned *partitions)
-{
-    long n = ctl(COSMO_BLKCTL_RESCAN, disk, 0, 0, NULL, NULL, 0);
-    struct cosmo_blkctl_rescan rs;
-    if (n < 0)
-        return (int)n;
-    if (n != (long)sizeof(rs))
-        return -EIO;
-    memcpy(&rs, g_res, sizeof(rs));
-    if (partitions)
-        *partitions = rs.partitions;
-    return 0;
-}
-
 int blkdevs_format_mirror(const char *a, const char *b, const char *fstype, const char *label)
 {
     if (strncmp(a, "/dev/", 5) == 0)

@@ -68,7 +68,7 @@ PROG_EXTRA_SRCS_blkid := userland/system/blkdevs.c userland/system/install_gpt.c
 PROG_DIR_mkfs.cosmofs := system
 # Roadmap 1.3 R2: a copied image fitted to its disk (docs/userland/design.md, "First boot without a console").
 PROG_DIR_cosmo-grow := system
-PROG_EXTRA_SRCS_cosmo-grow := userland/system/blkdevs.c userland/system/install_gpt.c
+PROG_EXTRA_SRCS_cosmo-grow := userland/system/install_gpt.c
 PROG_EXTRA_SRCS_mkfs.cosmofs := userland/system/blkdevs.c
 
 # Test-only programs: built and archived under SELFTEST, so a release
@@ -84,19 +84,35 @@ endif
 PROG_DIR_init := init
 PROG_EXTRA_SRCS_init := userland/lib/rootsnap.c
 
-# A program is one file, plus whatever PROG_EXTRA_SRCS_<name> lists.
-prog_srcs = userland/$(PROG_DIR_$(1))/$(1).c $(PROG_EXTRA_SRCS_$(1))
+# A program is one file, plus whatever PROG_EXTRA_SRCS_<name> lists. A program written in CeeSafe (its
+# userland/<dir>/<name>.cee in scripts/cee-gen.py's PORTS; roadmap 1.3 R2) is the C generated from it, CeeSafe's
+# runtime and the user programs' panic hook; freestanding CeeSafe has no main, so it exports cosmo_program_main and
+# the link names that main. A C program that links code generated from CeeSafe (install_gpt.c's GPT code) links the
+# same runtime and hook: USER_CEE_LINKED.
+USER_CEE_PROGRAMS := hostname cosmo-grow
+USER_CEE_LINKED := $(USER_CEE_PROGRAMS) cosmo-install blkid
+prog_srcs = userland/$(PROG_DIR_$(1))/$(1).c $(PROG_EXTRA_SRCS_$(1)) \
+	$(if $(filter $(1),$(USER_CEE_LINKED)),userland/lib/ceesafe_panic.c)
+prog_ldflags = $(if $(filter $(1),$(USER_CEE_PROGRAMS)),--defsym=main=cosmo_program_main)
 prog_elf  = $(OUT)/userland/$(1).elf
+# CeeSafe's runtime built for user mode, apart from the kernel's object of the same source, as pkg's is.
+USER_CEE_RT_OBJ := $(OUT)/userland/cee/ceesafe_rt_core.o
+prog_objs = $(call objs_of,$(call prog_srcs,$(1))) $(if $(filter $(1),$(USER_CEE_LINKED)),$(USER_CEE_RT_OBJ))
 
 USER_SRCS := $(sort $(foreach p,$(USER_PROGRAMS),$(call prog_srcs,$(p))))   # a shared source once
 USER_OBJS := $(call objs_of,$(USER_SRCS))
-$(eval $(call compile_rules,$(USER_OBJS),USER_CFLAGS))
+USER_CEE_CFLAGS = $(USER_CFLAGS) $(CEE_CFLAGS)
+$(eval $(call compile_rules,$(USER_OBJS),USER_CEE_CFLAGS))
+$(USER_CEE_RT_OBJ): $(CEE_GEN)/kernel/ceesafe/ceesafe_rt_core.c | $(CEE_STAMP)
+	$(call log,CC,$<)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(CC) $(USER_CEE_CFLAGS) -MMD -MP -c $< -o $@
 
 define prog_link_rule
-$(call prog_elf,$(1)): $(call objs_of,$(call prog_srcs,$(1))) $(LIBC_CRT0) $(LIBC_A) $(USER_LD)
+$(call prog_elf,$(1)): $(call prog_objs,$(1)) $(LIBC_CRT0) $(LIBC_A) $(USER_LD)
 	$$(call log,LD,$$@)
 	$$(Q)mkdir -p $$(dir $$@)
-	$$(Q)$$(LD) $$(USER_LDFLAGS) -T $(USER_LD) -o $$@ $(LIBC_CRT0) $(call objs_of,$(call prog_srcs,$(1))) $(LIBC_A)
+	$$(Q)$$(LD) $$(USER_LDFLAGS) $(call prog_ldflags,$(1)) -T $(USER_LD) -o $$@ $(LIBC_CRT0) $(call prog_objs,$(1)) $(LIBC_A)
 endef
 $(foreach p,$(USER_PROGRAMS),$(eval $(call prog_link_rule,$(p))))
 
