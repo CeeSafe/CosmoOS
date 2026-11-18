@@ -1,0 +1,1298 @@
+// cosmo-seed.cee - first boot without a console: the SSH key, the host name and the network from a cloud-init NoCloud
+// seed (roadmap 1.3 R2; docs/userland/design.md, "First boot without a console"). A whole user program in CeeSafe
+// (docs/build/ceesafe.md, "User programs"); the seed's readers and YAML are seed.cee's, linked beside it.
+//
+//   cosmo-seed
+//
+// /etc/rc runs it before `svc boot` (dropbear must find the key when it starts) and before `hostname -F`. It reads
+// every block device /dev/blkctl lists that is not mounted and not the boot device, by sectors, for one seed: an ISO
+// 9660 volume or a FAT volume labelled `cidata`. No seed: nothing is printed and the boot is as before. More than one:
+// none is used, and a line says which.
+//
+// meta-data (instance-id, local-hostname), user-data when its first line is `#cloud-config` (hostname,
+// ssh_authorized_keys) and network-config version 2 (ethernets: dhcp4, one IPv4 address, the default gateway, name
+// servers) are read with seed.cee's YAML subset; a key outside it is named in one line and ignored, a file that does
+// not parse is skipped with a line.
+//
+// The host name and the keys apply once per instance: when the seed's instance-id differs from
+// /var/lib/cloud/instance-id (or there is none). The network applies at every boot that has the seed (the kernel keeps
+// no address across a boot): IPV4_SET on /dev/net/tapctl for an interface with an address, which stops its DHCP
+// client; /etc/resolv.conf from the name servers. Exit 0, or 1 when a seed was found and something in it could not be
+// applied (each said in its own line).
+
+@header(
+    "uapi/cosmo/blkctl.h",
+    "uapi/cosmo/netctl.h",
+    "errno.h",
+    "fcntl.h",
+    "stdio.h",
+    "string.h",
+    "sys/stat.h",
+    "unistd.h",
+)
+extern "C" {
+    struct cosmo_blkctl {
+        version: u16;
+        op: u16;
+        count: u32;
+        sector: u64;
+        name: [u8; 16];
+        fstype: [u8; 16];
+    }
+    struct cosmo_blkctl_dev {
+        name: [u8; 16];
+        disk: [u8; 16];
+        sectors: u64;
+        sector_size: u32;
+        flags: u32;
+    }
+    struct cosmo_blkctl_list {
+        version: u32;
+        count: u32;
+    }
+    struct cosmo_netctl_ipv4 {
+        version: u16;
+        op: u16;
+        ifname: [u8; 16];
+        addr: u32;
+        gateway: u32;
+        prefix: u8;
+        reserved: [u8; 3];
+    }
+
+    @effects()
+    fn strlen(s: *CChar) -> usize;
+    fn strerror(err: i32) -> *mut CChar;
+    // errno is __errno_location's, a name CeeSafe does not import: a failure's reason is perror's (to stderr).
+    fn perror(prefix: *CChar);
+    fn access(path: *CChar, mode: i32) -> i32;
+    fn open(path: *CChar, flags: i32, ...) -> i32;
+    fn read(fd: i32, buf: *mut void, n: usize) -> isize;
+    fn write(fd: i32, buf: *void, n: usize) -> isize;
+    fn close(fd: i32) -> i32;
+    fn rename(from: *CChar, to: *CChar) -> i32;
+    fn unlink(path: *CChar) -> i32;
+    fn mkdir(path: *CChar, mode: u32) -> i32;
+    fn chmod(path: *CChar, mode: u32) -> i32;
+    fn sethostname(name: *CChar, len: usize) -> i32;
+
+    @cvalue("O_RDONLY")
+    const O_RDONLY: u32 = 0;
+    @cvalue("O_WRONLY")
+    const O_WRONLY: u32 = 1;
+    @cvalue("O_RDWR")
+    const O_RDWR: u32 = 2;
+    @cvalue("O_CREAT")
+    const O_CREAT: u32 = 0x40;
+    @cvalue("O_TRUNC")
+    const O_TRUNC: u32 = 0x200;
+    @cvalue("ENOENT")
+    const ENOENT: i32 = 2;
+    @cvalue("EFBIG")
+    const EFBIG: i32 = 27;
+    @cvalue("COSMO_BLKCTL_VERSION")
+    const BLKCTL_VERSION: u16 = 1;
+    @cvalue("COSMO_BLKCTL_LIST")
+    const OP_LIST: u16 = 1;
+    @cvalue("COSMO_BLKCTL_READ")
+    const OP_READ: u16 = 2;
+    @cvalue("COSMO_BLKCTL_IO_MAX")
+    const IO_MAX: usize = 32768;
+    @cvalue("COSMO_BLKCTL_MOUNTED")
+    const FLAG_MOUNTED: u32 = 8;
+    @cvalue("COSMO_BLKCTL_BOOT")
+    const FLAG_BOOT: u32 = 4;
+    @cvalue("COSMO_NETCTL_VERSION")
+    const NETCTL_VERSION: u16 = 8;
+    @cvalue("COSMO_NETCTL_IPV4_SET")
+    const NETCTL_IPV4_SET: u16 = 6;
+    @cvalue("COSMO_NETCTL_IF_LOOPBACK")
+    const IF_LOOPBACK: u32 = 2;
+    @cvalue("COSMO_NETCTL_IF_TAP")
+    const IF_TAP: u32 = 8;
+    @cvalue("COSMO_NETCTL_SNAPSHOT_MAX")
+    const SNAPSHOT_MAX: usize = 32504;
+    // The snapshot's records, walked by size as ip.c walks them: each section's header holds its count at byte 2
+    // (the filter section's rules at 2, its guests at 4).
+    @cvalue("sizeof(struct cosmo_netctl_list)")
+    const SZ_LIST: usize = 4;
+    @cvalue("sizeof(struct cosmo_netctl_rule)")
+    const SZ_RULE: usize = 12;
+    @cvalue("sizeof(struct cosmo_netctl_filter_list)")
+    const SZ_FLIST: usize = 8;
+    @cvalue("sizeof(struct cosmo_netctl_filter_guest)")
+    const SZ_FGUEST: usize = 12;
+    @cvalue("sizeof(struct cosmo_netctl_filter_rule)")
+    const SZ_FRULE: usize = 24;
+    @cvalue("sizeof(struct cosmo_netctl_flow_list)")
+    const SZ_FLOWLIST: usize = 128;
+    @cvalue("sizeof(struct cosmo_netctl_flow)")
+    const SZ_FLOW: usize = 32;
+    @cvalue("sizeof(struct cosmo_netctl_lease_list)")
+    const SZ_LEASELIST: usize = 8;
+    @cvalue("sizeof(struct cosmo_netctl_lease)")
+    const SZ_LEASE: usize = 128;
+    @cvalue("sizeof(struct cosmo_netctl_if_list)")
+    const SZ_IFLIST: usize = 8;
+    @cvalue("sizeof(struct cosmo_netctl_if)")
+    const SZ_IF: usize = 120;
+    @cvalue("offsetof(struct cosmo_netctl_if, flags)")
+    const IF_FLAGS_AT: usize = 12;
+    @cvalue("offsetof(struct cosmo_netctl_if, mac)")
+    const IF_MAC_AT: usize = 20;
+}
+
+// seed.cee's exports.
+extern "C" {
+    fn seed_probe(read: extern "C" fn(*mut void, u64, u32, *mut void) -> i32, ctx: *mut void, sectors: u64) -> i32;
+    fn seed_file(name: *CChar, buf: *mut u8, max: usize, len: *mut usize) -> i32;
+    fn yaml_parse(slot: u32, text: *mut CChar) -> i32;
+    fn yaml_error_line(slot: u32) -> i32;
+    fn yaml_error(slot: u32) -> *CChar;
+    fn yaml_root(slot: u32) -> i32;
+    fn yaml_type(slot: u32, i: i32) -> i32;
+    fn yaml_child(slot: u32, i: i32) -> i32;
+    fn yaml_next(slot: u32, i: i32) -> i32;
+    fn yaml_key(slot: u32, i: i32) -> *CChar;
+    fn yaml_text(slot: u32, i: i32) -> *CChar;
+    fn yaml_get(slot: u32, from: i32, path: *CChar) -> i32;
+    fn yaml_str(slot: u32, from: i32, path: *CChar) -> *CChar;
+}
+
+const SEED_ISO: i32 = 1;
+const YAML_SCALAR: i32 = 1;
+const YAML_MAP: i32 = 2;
+const YAML_LIST: i32 = 3;
+/// The documents, by seed.cee's slots.
+const META: u32 = 0;
+const USER: u32 = 1;
+const NET: u32 = 2;
+const FILE_MAX: usize = 65536;
+const DEVS_MAX: usize = 128;
+
+/// The program's buffers and records.
+struct State {
+    io: [u8; 32832]; // a command (struct cosmo_blkctl, 48 bytes) and IO_MAX bytes of data, rounded up
+    res: [u8; 65536];
+    devs: [cosmo_blkctl_dev; 128];
+    ndevs: usize;
+    sec: [u8; 4096];
+    raw: [u8; 65537];
+    meta: [u8; 65537];
+    user: [u8; 65537];
+    net: [u8; 65537];
+    keys: [u8; 65537];
+    snap: [u8; 32504];
+    cmd: cosmo_netctl_ipv4;
+    status: i32;
+    ifsAt: usize;
+    nifs: usize;
+}
+
+static mut STATE: State = State {
+    io: [0; 32832],
+    res: [0; 65536],
+    devs: [cosmo_blkctl_dev { name: [0; 16], disk: [0; 16], sectors: 0, sector_size: 0, flags: 0 }; 128],
+    ndevs: 0,
+    sec: [0; 4096],
+    raw: [0; 65537],
+    meta: [0; 65537],
+    user: [0; 65537],
+    net: [0; 65537],
+    keys: [0; 65537],
+    snap: [0; 32504],
+    cmd: cosmo_netctl_ipv4 { version: 0, op: 0, ifname: [0; 16], addr: 0, gateway: 0, prefix: 0, reserved: [0; 3] },
+    status: 0,
+    ifsAt: 0,
+    nifs: 0,
+};
+
+/// /dev/blkctl, opened by the first command.
+static mut FD: i32 = -1;
+
+/// Safety: the program is one thread; nothing else holds the state.
+unsafe fn st() -> borrow mut(static) State => Ptr.toBorrowMut(borrow mut STATE as *mut State);
+
+/// Safety: as st.
+unsafe fn problem() {
+    let s = st();
+    s.status = 1;
+}
+
+/// `line` and the last failure's reason, as perror writes them: "<line>: <reason>".
+/// Safety: as st.
+unsafe fn fail(line: borrow mut TextWriter) {
+    line.byte(0);
+    perror(line.written().ptr as *CChar);
+}
+
+/// Whether `path` exists (a mkdir's failure that leaves the directory there is EEXIST's).
+/// Safety: `path` is a terminated string.
+unsafe fn exists(path: *CChar) -> bool => access(path, 0) == 0;
+
+// ---- Output ----
+
+/// Safety: as st.
+unsafe fn emit(line: borrow TextWriter) {
+    let w = line.written();
+    let _ = write(1, w.ptr as *void, w.length);
+}
+
+/// A terminated string's bytes, at most `max` of them.
+/// Safety: `s` is a terminated string.
+unsafe fn cut(s: *CChar, max: usize) -> Slice<static, u8> {
+    let n = strlen(s);
+    return Slice.fromRaw(s as *u8, if (n < max) n else max);
+}
+
+/// Safety: `s` is a terminated string.
+unsafe fn cs(s: *CChar) -> Slice<static, u8> => Slice.fromRaw(s as *u8, strlen(s));
+
+// ---- Reading a device in 512-byte sectors ----
+
+/// A device name as text: up to its NUL.
+fn nameOf(n: borrow [u8; 16]) -> Slice<u8> {
+    var len: usize = 0;
+    while (len < 16 && n[len] != 0) {
+        len += 1;
+    }
+    return n[..len];
+}
+
+/// One command on /dev/blkctl; its result into the state's `res`. The result's length, or a negative on failure.
+/// Safety: as st.
+unsafe fn ctl(op: u16, name: Slice<u8>, sector: u64, count: u32) -> isize {
+    let s = st();
+    if (FD < 0) {
+        FD = open("/dev/blkctl\0".ptr as *CChar, truncate<i32>(O_RDWR));
+        if (FD < 0) {
+            return -1;
+        }
+    }
+    let size = layoutOf<cosmo_blkctl>().size;
+    s.io[..size].fill(0);
+    let cmd = Ptr.toBorrowMut(borrow mut s.io as *mut [u8; 32832] as *mut cosmo_blkctl);
+    cmd.version = BLKCTL_VERSION;
+    cmd.op = op;
+    cmd.sector = sector;
+    cmd.count = count;
+    let n = if (name.length < 15) name.length else 15;
+    cmd.name[..n].copyFrom(name[..n]);
+    if (write(FD, borrow s.io as *[u8; 32832] as *void, size) < 0) {
+        return -1;
+    }
+    return read(FD, borrow mut s.res as *mut [u8; 65536] as *mut void, 65536);
+}
+
+/// LIST into the state's devices. False when the channel failed.
+/// Safety: as st.
+unsafe fn listDevices() -> bool {
+    let n = ctl(OP_LIST, "".bytes(), 0, 0);
+    let hsize = layoutOf<cosmo_blkctl_list>().size;
+    if (n < 0 || truncate<usize>(n) < hsize) {
+        return false;
+    }
+    let s = st();
+    let hdr = Ptr.toBorrow(borrow s.res as *[u8; 65536] as *cosmo_blkctl_list);
+    let dsize = layoutOf<cosmo_blkctl_dev>().size;
+    var count = hdr.count as usize;
+    if (count > DEVS_MAX) {
+        count = DEVS_MAX;
+    }
+    let got = truncate<usize>(n);
+    if (hsize + count * dsize > got) {
+        count = (got - hsize) / dsize;
+    }
+    for (i in 0..count) {
+        let rec = (borrow s.res as *[u8; 65536] as *u8).add(hsize + i * dsize) as *cosmo_blkctl_dev;
+        let r = Ptr.toBorrow(rec);
+        let d = borrow mut s.devs[i];
+        d.name = r.name;
+        d.disk = r.disk;
+        d.sectors = r.sectors;
+        d.sector_size = r.sector_size;
+        d.flags = r.flags;
+    }
+    s.ndevs = count;
+    return true;
+}
+
+/// `count` device sectors of device `dev` from `lba` into `into`, in reads of at most IO_MAX.
+/// Safety: as st.
+unsafe fn readSectors(dev: usize, lba: u64, count: u64, into: SliceMut<u8>) -> bool {
+    let s = st();
+    let ss = s.devs[dev].sector_size as usize;
+    if (ss == 0) {
+        return false;
+    }
+    let name = nameOf(borrow s.devs[dev].name);
+    var nameCopy = [0u8; 16];
+    nameCopy[..name.length].copyFrom(name);
+    var at: u64 = 0;
+    while (at < count) {
+        let left = count - at;
+        let per = (IO_MAX / ss) as u64;
+        let n = if (left < per) left else per;
+        let bytes = truncate<usize>(n) * ss;
+        let got = ctl(OP_READ, nameCopy[..name.length], lba + at, truncate<u32>(n));
+        if (got < 0 || truncate<usize>(got) != bytes) {
+            return false;
+        }
+        let off = truncate<usize>(at) * ss;
+        let rs = st();
+        into[off..off + bytes].copyFrom(rs.res[..bytes]);
+        at += n;
+    }
+    return true;
+}
+
+/// seed.cee's reader: 512-byte sectors of the device whose index, plus one, is the context.
+/// Safety: seed_probe's contract: `buf` holds `count` 512-byte sectors.
+@callback
+unsafe fn devRead(ctx: *mut void, lba: u64, count: u32, buf: *mut void) -> i32 {
+    let dev = (ctx as usize) - 1;
+    let s = st();
+    let ss = s.devs[dev].sector_size as usize;
+    let out = SliceMut.fromRaw(buf as *mut u8, count as usize * 512);
+    if (ss == 512) {
+        return if (readSectors(dev, lba, count as u64, out)) 0 else -1;
+    }
+    if (ss < 512 || ss > 4096 || ss % 512 != 0) {
+        return -1;
+    }
+    let per = (ss / 512) as u64;
+    for (i in 0..count as u64) {
+        let sn = lba + i;
+        if (!readSectors(dev, sn / per, 1, mut s.sec[..ss])) {
+            return -1;
+        }
+        let from = truncate<usize>(sn % per) * 512;
+        let to = truncate<usize>(i) * 512;
+        out[to..to + 512].copyFrom(s.sec[from..from + 512]);
+    }
+    return 0;
+}
+
+// ---- Files ----
+
+/// `text` into `path` through a file beside it, renamed over it: a reader never sees half of it.
+/// Safety: `path` is a terminated string.
+unsafe fn writeWhole(path: *CChar, text: Slice<u8>, mode: u32) -> bool {
+    var tmp = [0u8; 256];
+    let p = cs(path);
+    let suffix = ".cosmo-seed".bytes();
+    if (p.length + suffix.length >= 256) {
+        return false;
+    }
+    tmp[..p.length].copyFrom(p);
+    tmp[p.length..p.length + suffix.length].copyFrom(suffix);
+    let tp = borrow tmp as *[u8; 256] as *CChar;
+    let fd = open(tp, truncate<i32>(O_WRONLY | O_CREAT | O_TRUNC), mode);
+    var ok = fd >= 0;
+    if (ok) {
+        let w = write(fd, text.ptr as *void, text.length);
+        ok = w >= 0 && truncate<usize>(w) == text.length;
+    }
+    if (fd >= 0 && close(fd) < 0) {
+        ok = false;
+    }
+    if (ok && rename(tp, path) < 0) {
+        ok = false;
+    }
+    if (!ok) {
+        var buffer = [0u8; 512];
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: writing ");
+        line.bytes(p);
+        fail(mut line);
+        if (fd >= 0) {
+            let _ = unlink(tp);
+        }
+    }
+    return ok;
+}
+
+/// A small file's contents into `out`, terminated, at most out.length - 1 bytes; its length or -1.
+/// Safety: `path` is a terminated string.
+unsafe fn readSmall(path: *CChar, out: SliceMut<u8>) -> i64 {
+    let fd = open(path, truncate<i32>(O_RDONLY));
+    if (fd < 0) {
+        return -1;
+    }
+    var got: usize = 0;
+    while (got < out.length - 1) {
+        let r = read(fd, out.ptr.add(got) as *mut void, out.length - 1 - got);
+        if (r <= 0) {
+            break;
+        }
+        got += truncate<usize>(r);
+    }
+    let _ = close(fd);
+    out[got] = 0;
+    return truncate<i64>(got);
+}
+
+fn isBlank(c: u8) -> bool => c == ' ' as u8 || c == 9 || c == 10 || c == 13;
+
+/// `s` without blanks at either end.
+fn trimmed(s: Slice<u8>) -> Slice<u8> {
+    var a: usize = 0;
+    var b = s.length;
+    while (a < b && isBlank(s[a])) {
+        a += 1;
+    }
+    while (b > a && isBlank(s[b - 1])) {
+        b -= 1;
+    }
+    return s[a..b];
+}
+
+// ---- The seed's files ----
+
+/// A seed file into `out` (a document buffer), terminated; false when absent or unreadable (said).
+/// Safety: as st; `name` is a terminated string.
+unsafe fn seedText(name: *CChar, out: SliceMut<u8>) -> bool {
+    let s = st();
+    var len: usize = 0;
+    let rc = seed_file(name, borrow mut s.raw as *mut [u8; 65537] as *mut u8, FILE_MAX, borrow mut len as *mut usize);
+    if (rc == -ENOENT) {
+        return false;
+    }
+    if (rc != 0) {
+        var buffer = [0u8; 256];
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: ");
+        line.bytes(cs(name));
+        line.text(": ");
+        if (rc == -EFBIG) {
+            line.text("longer than 64 KiB; not read");
+        } else {
+            line.bytes(cs(strerror(-rc)));
+        }
+        line.text("\n");
+        emit(borrow line);
+        problem();
+        return false;
+    }
+    out[..len].copyFrom(s.raw[..len]);
+    out[len] = 0;
+    for (i in 0..len) {
+        if (out[i] == 0) {
+            var buffer = [0u8; 256];
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-seed: ");
+            line.bytes(cs(name));
+            line.text(": holds a NUL byte; not read\n");
+            emit(borrow line);
+            problem();
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Safety: as st; `text` is the document's terminated buffer; `name` a terminated string.
+unsafe fn parse(slot: u32, text: *mut u8, name: *CChar) -> bool {
+    if (yaml_parse(slot, text as *mut CChar) == 0) {
+        return true;
+    }
+    var buffer = [0u8; 512];
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("cosmo-seed: ");
+    line.bytes(cs(name));
+    line.text(": line ");
+    line.signed(yaml_error_line(slot) as i64);
+    line.text(": ");
+    line.bytes(cs(yaml_error(slot)));
+    line.text("; the file is skipped\n");
+    emit(borrow line);
+    problem();
+    return false;
+}
+
+/// Whether `key` is one of `known`'s words (each between blanks: " a b ").
+fn knownKey(known: Slice<u8>, key: Slice<u8>) -> bool {
+    var i: usize = 0;
+    while (i < known.length) {
+        while (i < known.length && known[i] == ' ' as u8) {
+            i += 1;
+        }
+        var j = i;
+        while (j < known.length && known[j] != ' ' as u8) {
+            j += 1;
+        }
+        if (j > i && known[i..j] == key) {
+            return true;
+        }
+        i = j;
+    }
+    return false;
+}
+
+/// Name in one line the keys of map `at` outside `known`.
+/// Safety: as st; the document was parsed.
+unsafe fn unknownKeys(slot: u32, at: i32, known: StringView, place: Slice<u8>) {
+    if (yaml_type(slot, at) != YAML_MAP) {
+        return;
+    }
+    var buffer = [0u8; 600];
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("cosmo-seed: ");
+    line.bytes(place);
+    line.text(": ignoring ");
+    var any = false;
+    var e = yaml_child(slot, at);
+    while (e >= 0) {
+        let k = cs(yaml_key(slot, e));
+        if (!knownKey(known.bytes(), k)) {
+            if (any) {
+                line.text(", ");
+            }
+            line.bytes(k);
+            any = true;
+        }
+        e = yaml_next(slot, e);
+    }
+    if (any) {
+        line.text("\n");
+        emit(borrow line);
+    }
+}
+
+/// Safety: `s` is null or a terminated string.
+unsafe fn truthy(s: *CChar) -> bool {
+    if (s.isNull()) {
+        return false;
+    }
+    let t = cs(s);
+    return t == "true".bytes() || t == "True".bytes() || t == "yes".bytes() || t == "on".bytes();
+}
+
+// ---- Once per instance: the host name and the keys ----
+
+/// As the kernel keeps a DHCP server's name: letters, digits, '-' and '.', 1 to 64 of them.
+fn hostnameOk(s: Slice<u8>) -> bool {
+    if (s.length == 0 || s.length > 64) {
+        return false;
+    }
+    for (i in 0..s.length) {
+        let c = s[i];
+        if (!((c >= 'a' as u8 && c <= 'z' as u8) || (c >= 'A' as u8 && c <= 'Z' as u8) ||
+            (c >= '0' as u8 && c <= '9' as u8) || c == '-' as u8 || c == '.' as u8)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Safety: as st; `name` is a terminated string.
+unsafe fn applyHostname(name: *CChar) {
+    let n = cs(name);
+    var buffer = [0u8; 256];
+    if (!hostnameOk(n)) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: host name '");
+        line.bytes(cut(name, 64));
+        line.text("' is not letters, digits, '-' and '.' (at most 64); not set\n");
+        emit(borrow line);
+        problem();
+        return;
+    }
+    var text = [0u8; 80];
+    text[..n.length].copyFrom(n);
+    text[n.length] = 10;
+    let t = text[..n.length + 1];
+    if (!writeWhole("/etc/hostname\0".ptr as *CChar, t, 420) ||
+        !writeWhole("/var/lib/cloud/hostname\0".ptr as *CChar, t, 420)) {
+        problem();
+        return;
+    }
+    if (sethostname(name, n.length) < 0) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: sethostname ");
+        line.bytes(n);
+        fail(mut line);
+        problem();
+        return;
+    }
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("cosmo-seed: host name ");
+    line.bytes(n);
+    line.text("\n");
+    emit(borrow line);
+}
+
+/// Whether `text` has a line that is `want` (a line's trailing '\r' and blanks not counted).
+fn hasLine(text: Slice<u8>, want: Slice<u8>) -> bool {
+    var s: usize = 0;
+    while (s < text.length) {
+        var e = s;
+        while (e < text.length && text[e] != 10) {
+            e += 1;
+        }
+        var len = e - s;
+        while (len > 0 && (text[s + len - 1] == 13 || text[s + len - 1] == ' ' as u8)) {
+            len -= 1;
+        }
+        if (len == want.length && text[s..s + len] == want) {
+            return true;
+        }
+        s = e + 1;
+    }
+    return false;
+}
+
+/// Safety: as st; the document was parsed.
+unsafe fn applyKeys(slot: u32, list: i32) {
+    let kind = yaml_type(slot, list);
+    if (kind == 0) {
+        return;
+    }
+    var buffer = [0u8; 256];
+    if (kind != YAML_LIST) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: user-data: ssh_authorized_keys is not a list; no key added\n");
+        emit(borrow line);
+        problem();
+        return;
+    }
+    if (mkdir("/root/.ssh\0".ptr as *CChar, 448) < 0 && !exists("/root/.ssh\0".ptr as *CChar)) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: /root/.ssh");
+        fail(mut line);
+        problem();
+        return;
+    }
+    let _ = chmod("/root/.ssh\0".ptr as *CChar, 448);
+    let path = "/root/.ssh/authorized_keys\0".ptr as *CChar;
+    let s = st();
+    var len: usize = 0;
+    let have = readSmall(path, mut s.keys[..]);
+    if (have < 0) {
+        s.keys[0] = 0;
+    } else {
+        len = truncate<usize>(have);
+    }
+    var added: u64 = 0;
+    var kept: u64 = 0;
+    var k = yaml_child(slot, list);
+    while (k >= 0) {
+        let tp = yaml_text(slot, k);
+        let key = if (tp.isNull()) "".bytes() else cs(tp);
+        var oneLine = key.length > 0;
+        for (i in 0..key.length) {
+            if (key[i] == 10) {
+                oneLine = false;
+            }
+        }
+        if (yaml_type(slot, k) != YAML_SCALAR || !oneLine) {
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-seed: user-data: an ssh_authorized_keys entry that is not one line; skipped\n");
+            emit(borrow line);
+            problem();
+        } else if (hasLine(s.keys[..len], key)) {
+            kept += 1;
+        } else {
+            let need = key.length + 2;
+            if (len + need >= 65537) {
+                var line = TextWriter.create(mut buffer[..]);
+                line.text("cosmo-seed: /root/.ssh/authorized_keys would pass 64 KiB; a key is not added\n");
+                emit(borrow line);
+                problem();
+                break;
+            }
+            if (len > 0 && s.keys[len - 1] != 10) {
+                s.keys[len] = 10;
+                len += 1;
+            }
+            s.keys[len..len + key.length].copyFrom(key);
+            len += key.length;
+            s.keys[len] = 10;
+            len += 1;
+            s.keys[len] = 0;
+            added += 1;
+        }
+        k = yaml_next(slot, k);
+    }
+    if (added > 0 && !writeWhole(path, s.keys[..len], 384)) {
+        problem();
+        return;
+    }
+    let _ = chmod(path, 384);
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("cosmo-seed: ");
+    line.decimal(added);
+    line.text(" SSH key(s) added to /root/.ssh/authorized_keys");
+    if (kept > 0) {
+        line.text(" (others already there)");
+    }
+    line.text("\n");
+    emit(borrow line);
+}
+
+// ---- Every boot: the network ----
+
+fn u16At(b: Slice<u8>, at: usize) -> usize => (b[at] as usize) | ((b[at + 1] as usize) << 8);
+
+/// The interface section of /dev/net/tapctl's snapshot (as ip.c walks it): false when it cannot be read.
+/// Safety: as st.
+unsafe fn loadIfs() -> bool {
+    let fd = open("/dev/net/tapctl\0".ptr as *CChar, truncate<i32>(O_RDONLY));
+    if (fd < 0) {
+        return false;
+    }
+    let s = st();
+    let n = read(fd, borrow mut s.snap as *mut [u8; 32504] as *mut void, SNAPSHOT_MAX);
+    let _ = close(fd);
+    if (n < 0) {
+        return false;
+    }
+    let len = truncate<usize>(n);
+    let b = s.snap[..len];
+    var off: usize = 0;
+    if (len < off + SZ_LIST || u16At(b, 0) != NETCTL_VERSION as usize) {
+        return false;
+    }
+    let rules = u16At(b, off + 2);
+    off += SZ_LIST + rules * SZ_RULE;
+    if (len < off + SZ_FLIST) {
+        return false;
+    }
+    let frules = u16At(b, off + 2);
+    let guests = u16At(b, off + 4);
+    off += SZ_FLIST + guests * SZ_FGUEST + frules * SZ_FRULE;
+    if (len < off + SZ_FLOWLIST) {
+        return false;
+    }
+    off += SZ_FLOWLIST + u16At(b, off + 2) * SZ_FLOW;
+    if (len < off + SZ_LEASELIST) {
+        return false;
+    }
+    off += SZ_LEASELIST + u16At(b, off + 2) * SZ_LEASE;
+    if (len < off + SZ_IFLIST) {
+        return false;
+    }
+    let count = u16At(b, off + 2);
+    off += SZ_IFLIST;
+    if (len < off + count * SZ_IF) {
+        return false;
+    }
+    s.ifsAt = off;
+    s.nifs = count;
+    return true;
+}
+
+/// "a.b.c.d" at the start of `s`, into network byte order; place it ends in `end`.
+fn ipv4(s: Slice<u8>, out: borrow mut u32, end: borrow mut usize) -> bool {
+    var v: u32 = 0;
+    var i: usize = 0;
+    for (part in 0..4u32) {
+        if (i >= s.length || s[i] < '0' as u8 || s[i] > '9' as u8) {
+            return false;
+        }
+        var n: u32 = 0;
+        var digits: u32 = 0;
+        while (i < s.length && s[i] >= '0' as u8 && s[i] <= '9' as u8 && digits < 4) {
+            n = n * 10 + (s[i] - '0' as u8) as u32;
+            i += 1;
+            digits += 1;
+        }
+        if (n > 255 || (i < s.length && s[i] >= '0' as u8 && s[i] <= '9' as u8)) {
+            return false;
+        }
+        v = (v << 8) | n;
+        if (part < 3) {
+            if (i >= s.length || s[i] != '.' as u8) {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    out = ((v & 0xff) << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24);
+    end = i;
+    return true;
+}
+
+/// Safety: `s` is null or a terminated string.
+unsafe fn ipv4Only(s: *CChar, out: borrow mut u32) -> bool {
+    if (s.isNull()) {
+        return false;
+    }
+    let t = cs(s);
+    var end: usize = 0;
+    return ipv4(t, out, mut end) && end == t.length;
+}
+
+fn hexDigit(c: u8) -> u32 =>
+    if (c >= '0' as u8 && c <= '9' as u8) (c - '0' as u8) as u32
+        else if (c >= 'a' as u8 && c <= 'f' as u8) (c - 'a' as u8 + 10) as u32
+        else if (c >= 'A' as u8 && c <= 'F' as u8) (c - 'A' as u8 + 10) as u32
+        else 99;
+
+fn macOf(s: Slice<u8>, mac: borrow mut [u8; 6]) -> bool {
+    var i: usize = 0;
+    for (k in 0..6usize) {
+        var v: u32 = 0;
+        for (j in 0..2usize) {
+            if (i >= s.length) {
+                return false;
+            }
+            v = v * 16 + hexDigit(s[i]);
+            i += 1;
+            if (v > 255) {
+                return false;
+            }
+        }
+        mac[k] = truncate<u8>(v);
+        if (k < 5) {
+            if (i >= s.length || s[i] != ':' as u8) {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    return i == s.length;
+}
+
+/// The snapshot's interface `i`'s record.
+/// Safety: as st; loadIfs succeeded and i < nifs.
+unsafe fn ifRec(i: usize) -> Slice<static, u8> {
+    let s = st();
+    let at = s.ifsAt + i * SZ_IF;
+    return Slice.fromRaw((borrow s.snap as *[u8; 32504] as *u8).add(at), SZ_IF);
+}
+
+/// The interface an ethernets entry names: by `match.macaddress`, or by its id as the interface's name; -1 for none.
+/// Safety: as st; `id` is a terminated string.
+unsafe fn ifFor(slot: u32, eth: i32, id: *CChar) -> i64 {
+    let macText = yaml_str(slot, eth, "match.macaddress\0".ptr as *CChar);
+    var mac = [0u8; 6];
+    if (!macText.isNull() && !macOf(cs(macText), mut mac)) {
+        return -1;
+    }
+    let want = cs(id);
+    for (i in 0..st().nifs) {
+        let f = ifRec(i);
+        let flags = (f[IF_FLAGS_AT] as u32) | ((f[IF_FLAGS_AT + 1] as u32) << 8) |
+            ((f[IF_FLAGS_AT + 2] as u32) << 16) | ((f[IF_FLAGS_AT + 3] as u32) << 24);
+        if ((flags & (IF_LOOPBACK | IF_TAP)) != 0) {
+            continue;
+        }
+        if (!macText.isNull()) {
+            if (f[IF_MAC_AT..IF_MAC_AT + 6] == mac[..]) {
+                return truncate<i64>(i);
+            }
+        } else {
+            // strncmp over the record's 8 name bytes.
+            var same = true;
+            for (j in 0..8usize) {
+                let a = f[j];
+                let b: u8 = if (j < want.length) want[j] else 0;
+                if (a != b) {
+                    same = false;
+                    break;
+                }
+                if (a == 0) {
+                    break;
+                }
+            }
+            if (same) {
+                return truncate<i64>(i);
+            }
+        }
+    }
+    return -1;
+}
+
+/// The interface record's name, up to 8 bytes.
+fn ifName(f: Slice<u8>) -> Slice<u8> {
+    var n: usize = 0;
+    while (n < 8 && f[n] != 0) {
+        n += 1;
+    }
+    return f[..n];
+}
+
+/// Safety: as st; the document was parsed.
+unsafe fn applyNetwork(slot: u32) {
+    var buffer = [0u8; 512];
+    unknownKeys(slot, yaml_root(slot), " version ethernets ", "network-config".bytes());
+    let version = yaml_str(slot, -1, "version\0".ptr as *CChar);
+    if (version.isNull() || cs(version) != "2".bytes()) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: network-config: version ");
+        if (version.isNull()) {
+            line.text("(none)");
+        } else {
+            line.bytes(cs(version));
+        }
+        line.text(" is not 2; the network stays as DHCP sets it\n");
+        emit(borrow line);
+        problem();
+        return;
+    }
+    let eths = yaml_get(slot, -1, "ethernets\0".ptr as *CChar);
+    if (yaml_type(slot, eths) != YAML_MAP) {
+        return;
+    }
+    if (!loadIfs()) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: network-config: cannot read the interfaces from /dev/net/tapctl\n");
+        emit(borrow line);
+        problem();
+        return;
+    }
+    var dns = [0u32; 3];
+    var ndns: usize = 0;
+    var e = yaml_child(slot, eths);
+    while (e >= 0) {
+        let id = yaml_key(slot, e);
+        var whereBuf = [0u8; 96];
+        var wl = TextWriter.create(mut whereBuf[..]);
+        wl.text("network-config: ethernets.");
+        wl.bytes(cut(id, 40));
+        let place = wl.written();
+        unknownKeys(slot, e, " match dhcp4 addresses gateway4 routes nameservers set-name ", place);
+        let ns = yaml_get(slot, e, "nameservers.addresses\0".ptr as *CChar);
+        if (yaml_type(slot, ns) == YAML_LIST) {
+            var k = yaml_child(slot, ns);
+            while (k >= 0) {
+                var a: u32 = 0;
+                if (yaml_type(slot, k) == YAML_SCALAR && ipv4Only(yaml_text(slot, k), mut a) && ndns < 3) {
+                    dns[ndns] = a;
+                    ndns += 1;
+                }
+                k = yaml_next(slot, k);
+            }
+        }
+        let addrs = yaml_get(slot, e, "addresses\0".ptr as *CChar);
+        var cidr = 0 as *CChar;
+        if (yaml_type(slot, addrs) == YAML_LIST) {
+            var k = yaml_child(slot, addrs);
+            while (k >= 0) {
+                if (yaml_type(slot, k) == YAML_SCALAR) {
+                    let t = cs(yaml_text(slot, k));
+                    var v6 = false;
+                    for (i in 0..t.length) {
+                        if (t[i] == ':' as u8) {
+                            v6 = true;
+                        }
+                    }
+                    if (!v6) {
+                        if (cidr.isNull()) {
+                            cidr = yaml_text(slot, k);
+                        } else {
+                            var line = TextWriter.create(mut buffer[..]);
+                            line.text("cosmo-seed: ");
+                            line.bytes(place);
+                            line.text(": only the first IPv4 address is set (");
+                            line.bytes(cs(cidr));
+                            line.text(")\n");
+                            emit(borrow line);
+                        }
+                    }
+                }
+                k = yaml_next(slot, k);
+            }
+        }
+        let f = ifFor(slot, e, id);
+        if (cidr.isNull()) {
+            if (!truthy(yaml_str(slot, e, "dhcp4\0".ptr as *CChar)) && f >= 0) {
+                var line = TextWriter.create(mut buffer[..]);
+                line.text("cosmo-seed: ");
+                line.bytes(place);
+                line.text(": no IPv4 address; ");
+                line.bytes(ifName(ifRec(truncate<usize>(f))));
+                line.text(" keeps DHCP\n");
+                emit(borrow line);
+            }
+            e = yaml_next(slot, e);
+            continue;
+        }
+        if (f < 0) {
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-seed: ");
+            line.bytes(place);
+            line.text(": no such interface\n");
+            emit(borrow line);
+            problem();
+            e = yaml_next(slot, e);
+            continue;
+        }
+        let ct = cs(cidr);
+        var addr: u32 = 0;
+        var gw: u32 = 0;
+        var end: usize = 0;
+        var prefix: u32 = 0;
+        var ok = ipv4(ct, mut addr, mut end) && end < ct.length && ct[end] == '/' as u8;
+        if (ok) {
+            var i = end + 1;
+            var digits: usize = 0;
+            while (i < ct.length && ct[i] >= '0' as u8 && ct[i] <= '9' as u8 && digits < 3) {
+                prefix = prefix * 10 + (ct[i] - '0' as u8) as u32;
+                i += 1;
+                digits += 1;
+            }
+            ok = digits > 0 && i == ct.length && prefix >= 1 && prefix <= 32;
+        }
+        var gtext = yaml_str(slot, e, "gateway4\0".ptr as *CChar);
+        let routes = yaml_get(slot, e, "routes\0".ptr as *CChar);
+        if (yaml_type(slot, routes) == YAML_LIST) {
+            var k = yaml_child(slot, routes);
+            while (k >= 0 && gtext.isNull()) {
+                let to = yaml_str(slot, k, "to\0".ptr as *CChar);
+                if (!to.isNull() && (cs(to) == "default".bytes() || cs(to) == "0.0.0.0/0".bytes())) {
+                    gtext = yaml_str(slot, k, "via\0".ptr as *CChar);
+                }
+                k = yaml_next(slot, k);
+            }
+        }
+        if (ok && !gtext.isNull()) {
+            ok = ipv4Only(gtext, mut gw);
+        }
+        if (!ok) {
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-seed: ");
+            line.bytes(place);
+            line.text(": '");
+            line.bytes(ct);
+            line.text("'");
+            if (!gtext.isNull()) {
+                line.text(" via ");
+                line.bytes(cs(gtext));
+            }
+            line.text(" is not an IPv4 address/prefix and gateway; not set\n");
+            emit(borrow line);
+            problem();
+            e = yaml_next(slot, e);
+            continue;
+        }
+        let s = st();
+        let name = ifName(ifRec(truncate<usize>(f)));
+        s.cmd.version = NETCTL_VERSION;
+        s.cmd.op = NETCTL_IPV4_SET;
+        s.cmd.ifname = [0; 16];
+        s.cmd.ifname[..name.length].copyFrom(name);
+        s.cmd.addr = addr;
+        s.cmd.gateway = gw;
+        s.cmd.prefix = truncate<u8>(prefix);
+        s.cmd.reserved = [0; 3];
+        let size = layoutOf<cosmo_netctl_ipv4>().size;
+        let fd = open("/dev/net/tapctl\0".ptr as *CChar, truncate<i32>(O_WRONLY));
+        var w: isize = -1;
+        if (fd >= 0) {
+            w = write(fd, borrow s.cmd as *cosmo_netctl_ipv4 as *void, size);
+        }
+        var line = TextWriter.create(mut buffer[..]);
+        if (fd < 0 || w < 0 || truncate<usize>(w) != size) {
+            line.text("cosmo-seed: ");
+            line.bytes(place);
+            line.text(": setting ");
+            line.bytes(ct);
+            line.text(" on ");
+            line.bytes(name);
+            fail(mut line);
+            problem();
+        } else {
+            line.text("cosmo-seed: ");
+            line.bytes(name);
+            line.text(" ");
+            line.bytes(ct);
+            if (!gtext.isNull()) {
+                line.text(" via ");
+                line.bytes(cs(gtext));
+            }
+            line.text("\n");
+            emit(borrow line);
+        }
+        if (fd >= 0) {
+            let _ = close(fd);
+        }
+        e = yaml_next(slot, e);
+    }
+    if (ndns > 0) {
+        var text = [0u8; 256];
+        var tw = TextWriter.create(mut text[..]);
+        tw.text("# written by cosmo-seed from the seed's network-config\n");
+        for (i in 0..ndns) {
+            let a = dns[i];
+            tw.text("nameserver ");
+            tw.decimal((a & 0xff) as u64);
+            tw.text(".");
+            tw.decimal(((a >> 8) & 0xff) as u64);
+            tw.text(".");
+            tw.decimal(((a >> 16) & 0xff) as u64);
+            tw.text(".");
+            tw.decimal((a >> 24) as u64);
+            tw.text("\n");
+        }
+        var line = TextWriter.create(mut buffer[..]);
+        if (writeWhole("/etc/resolv.conf\0".ptr as *CChar, tw.written(), 420)) {
+            line.text("cosmo-seed: /etc/resolv.conf: ");
+            line.decimal(ndns as u64);
+            line.text(" name server(s)\n");
+            emit(borrow line);
+        } else {
+            problem();
+        }
+    }
+}
+
+// ---- The program ----
+
+/// Safety: `argv` holds `argc` strings (none are read).
+@export("cosmo_program_main") // crt0 calls main: the link names this main (userland.mk, USER_CEE_PROGRAMS)
+unsafe fn run(argc: i32, argv: *mut *mut CChar) -> i32 {
+    if (!listDevices()) {
+        return 0; // no block devices to look at: nothing to do
+    }
+    var buffer = [0u8; 512];
+    let s = st();
+    var found = [0usize; 2];
+    var nfound: usize = 0;
+    var seen: u64 = 0;
+    for (i in 0..s.ndevs) {
+        let d = borrow s.devs[i];
+        if ((d.flags & (FLAG_MOUNTED | FLAG_BOOT)) != 0) {
+            continue;
+        }
+        let per = (d.sector_size / 512) as u64;
+        if (seed_probe(devRead, (i + 1) as *mut void, d.sectors * per) <= 0) {
+            continue;
+        }
+        if (nfound < 2) {
+            found[nfound] = i;
+            nfound += 1;
+        }
+        seen += 1;
+    }
+    if (seen == 0) {
+        return 0;
+    }
+    if (seen > 1) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-seed: ");
+        line.decimal(seen);
+        line.text(" seeds (");
+        line.bytes(nameOf(borrow s.devs[found[0]].name));
+        line.text(", ");
+        line.bytes(nameOf(borrow s.devs[found[1]].name));
+        if (seen > 2) {
+            line.text(", ...");
+        }
+        line.text("); none is used\n");
+        emit(borrow line);
+        return 1;
+    }
+    // The probe of the seed again: seed.cee keeps the layout of the last device probed.
+    let dev = found[0];
+    let kind = seed_probe(
+        devRead,
+        (dev + 1) as *mut void,
+        s.devs[dev].sectors * (s.devs[dev].sector_size / 512) as u64,
+    );
+    if (kind <= 0) {
+        return 1;
+    }
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("cosmo-seed: seed on ");
+    line.bytes(nameOf(borrow s.devs[dev].name));
+    line.text(if (kind == SEED_ISO) " (ISO 9660)\n" else " (FAT)\n");
+    emit(borrow line);
+
+    let meta = borrow mut s.meta as *mut [u8; 65537] as *mut u8;
+    let haveMeta = seedText("meta-data\0".ptr as *CChar, mut s.meta[..]);
+    if (!haveMeta || !parse(META, meta, "meta-data\0".ptr as *CChar)) {
+        if (!haveMeta) {
+            var ml = TextWriter.create(mut buffer[..]);
+            ml.text("cosmo-seed: the seed has no meta-data; nothing is applied\n");
+            emit(borrow ml);
+        }
+        return 1;
+    }
+    unknownKeys(META, yaml_root(META), " instance-id local-hostname ", "meta-data".bytes());
+    let iidp = yaml_str(META, -1, "instance-id\0".ptr as *CChar);
+    var iidOk = !iidp.isNull();
+    if (iidOk) {
+        let t = cs(iidp);
+        iidOk = t.length > 0;
+        for (i in 0..t.length) {
+            if (t[i] == 10) {
+                iidOk = false;
+            }
+        }
+    }
+    if (!iidOk) {
+        var il = TextWriter.create(mut buffer[..]);
+        il.text("cosmo-seed: meta-data has no instance-id; nothing is applied\n");
+        emit(borrow il);
+        return 1;
+    }
+    let iid = cs(iidp);
+
+    var userOk = false;
+    if (seedText("user-data\0".ptr as *CChar, mut s.user[..])) {
+        let head = "#cloud-config".bytes();
+        let u = s.user[..];
+        let c = u[13];
+        if (u[..13] == head && (c == 10 || c == 13 || c == 0 || c == ' ' as u8)) {
+            userOk = parse(USER, borrow mut s.user as *mut [u8; 65537] as *mut u8, "user-data\0".ptr as *CChar);
+        } else {
+            var ul = TextWriter.create(mut buffer[..]);
+            ul.text("cosmo-seed: user-data is not #cloud-config; it is ignored\n");
+            emit(borrow ul);
+        }
+    }
+    if (userOk) {
+        unknownKeys(USER, yaml_root(USER), " hostname ssh_authorized_keys ", "user-data".bytes());
+    }
+
+    var last = [0u8; 256];
+    let n = readSmall("/var/lib/cloud/instance-id\0".ptr as *CChar, mut last[..]);
+    if (n >= 0 && trimmed(last[..truncate<usize>(n)]) == iid) {
+        var al = TextWriter.create(mut buffer[..]);
+        al.text("cosmo-seed: instance ");
+        al.bytes(iid);
+        al.text(" already applied\n");
+        emit(borrow al);
+    } else {
+        if (mkdir("/var/lib\0".ptr as *CChar, 493) < 0 && !exists("/var/lib\0".ptr as *CChar)) {
+            problem();
+        }
+        if (mkdir("/var/lib/cloud\0".ptr as *CChar, 493) < 0 && !exists("/var/lib/cloud\0".ptr as *CChar)) {
+            var cl = TextWriter.create(mut buffer[..]);
+            cl.text("cosmo-seed: /var/lib/cloud");
+            fail(mut cl);
+            return 1;
+        }
+        var host = if (userOk) yaml_str(USER, -1, "hostname\0".ptr as *CChar) else 0 as *CChar;
+        if (host.isNull()) {
+            host = yaml_str(META, -1, "local-hostname\0".ptr as *CChar);
+        }
+        if (!host.isNull() && strlen(host) > 0) {
+            applyHostname(host);
+        }
+        if (userOk) {
+            applyKeys(USER, yaml_get(USER, -1, "ssh_authorized_keys\0".ptr as *CChar));
+        }
+        var text = [0u8; 256];
+        let keep = if (iid.length < 250) iid.length else 250;
+        text[..keep].copyFrom(iid[..keep]);
+        text[keep] = 10;
+        if (writeWhole("/var/lib/cloud/instance-id\0".ptr as *CChar, text[..keep + 1], 420)) {
+            var al = TextWriter.create(mut buffer[..]);
+            al.text("cosmo-seed: instance ");
+            al.bytes(iid);
+            al.text(" applied\n");
+            emit(borrow al);
+        } else {
+            problem();
+        }
+    }
+
+    if (seedText("network-config\0".ptr as *CChar, mut s.net[..]) &&
+        parse(NET, borrow mut s.net as *mut [u8; 65537] as *mut u8, "network-config\0".ptr as *CChar)) {
+        applyNetwork(NET);
+    }
+    return st().status;
+}

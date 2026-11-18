@@ -71,7 +71,7 @@ PROG_DIR_cosmo-grow := system
 PROG_EXTRA_SRCS_cosmo-grow := userland/system/install_gpt.c
 # Roadmap 1.3 R2: the SSH key, host name and network from a NoCloud seed.
 PROG_DIR_cosmo-seed := system
-PROG_EXTRA_SRCS_cosmo-seed := userland/system/blkdevs.c userland/system/seed_read.c userland/system/seed_yaml.c
+PROG_EXTRA_SRCS_cosmo-seed := userland/system/seed.c
 PROG_EXTRA_SRCS_mkfs.cosmofs := userland/system/blkdevs.c
 
 # Test-only programs: built and archived under SELFTEST, so a release
@@ -92,7 +92,7 @@ PROG_EXTRA_SRCS_init := userland/lib/rootsnap.c
 # runtime and the user programs' panic hook; freestanding CeeSafe has no main, so it exports cosmo_program_main and
 # the link names that main. A C program that links code generated from CeeSafe (install_gpt.c's GPT code) links the
 # same runtime and hook: USER_CEE_LINKED.
-USER_CEE_PROGRAMS := hostname cosmo-grow
+USER_CEE_PROGRAMS := hostname cosmo-grow cosmo-seed sync
 USER_CEE_LINKED := $(USER_CEE_PROGRAMS) cosmo-install blkid
 prog_srcs = userland/$(PROG_DIR_$(1))/$(1).c $(PROG_EXTRA_SRCS_$(1)) \
 	$(if $(filter $(1),$(USER_CEE_LINKED)),userland/lib/ceesafe_panic.c)

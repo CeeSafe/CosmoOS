@@ -900,15 +900,19 @@ design, "Growing a member".
 Growth does not depend on the seed: a cloud image booted without one still
 fills its disk. An installed disk whose root already fills it is unchanged.
 
-### The seed (`userland/system/cosmo-seed.c`, `seed_read.c`, `seed_yaml.c`)
+### The seed (`userland/system/cosmo-seed.cee`, `seed.cee`)
 
 `/etc/rc` runs `cosmo-seed` after `mount -a` and before `svc boot`
 (dropbear must find the key when it starts) and `hostname -F`. It reads
 every block device `/dev/blkctl` lists that is neither mounted nor the
 boot device, by sectors through `/dev/blkctl` (512-byte sectors, a larger
-device sector read whole and cut), with no file system mounted. The
-readers (`seed_read.c`) check every offset, length, count and cluster
-number against the device and their buffers before using it:
+device sector read whole and cut), with no file system mounted. Both are
+CeeSafe user code (`docs/build/ceesafe.md`, "User programs"): the program,
+and `seed.cee`, the readers and the YAML, which the program and the host
+test link through its C exports (`seed_probe`, `seed_file`, `yaml_*`; three
+documents at once, one seed's layout, the last probed). The readers check
+every offset, length, count and cluster number against the device and
+their buffers before using it:
 
 - **ISO 9660**: the volume descriptors from 32768 bytes (at most 32, to the
   terminator); a primary volume identifier of `cidata` (any case) makes it
@@ -929,7 +933,7 @@ More than one: none is used, and one line names two of them. It reads
 `meta-data`, `user-data` and `network-config`, each at most 64 KiB (a
 longer one is not read, and said); a file holding a NUL is not read.
 
-**The subset** (`seed_yaml.c`). Block maps (a list may sit at its key's own
+**The subset** (`seed.cee`). Block maps (a list may sit at its key's own
 column), block lists (an item may be a map: `- to: default` with `via:`
 under it), flow lists of scalars (`[a, b]`), plain, single- and
 double-quoted scalars (`''`, `\n`, `\t`, `\\`, `\"`, `\/`), comments and one
@@ -956,7 +960,10 @@ key not already a line of `/root/.ssh/authorized_keys` is appended
 (`/root/.ssh` 0700, the file 0600, at most 64 KiB). Then the instance id
 is written; a later boot of the same instance says `instance <id> already
 applied`. `netcfg` does not apply a DHCP server's host name while
-`/var/lib/cloud/hostname` exists.
+`/var/lib/cloud/hostname` exists. A failure with a system error (a write,
+`sethostname`, a directory, `IPV4_SET`) is reported by `perror`, on the
+standard error: errno is libc's `__errno_location`, a name CeeSafe does not
+import; every other line is on the standard output.
 
 **The network, every boot.** The interfaces come from `/dev/net/tapctl`'s
 snapshot (its interface section; loopback and guests' taps are never

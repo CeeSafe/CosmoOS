@@ -5,7 +5,7 @@
 
 Each FILE is stored in the volume's root directory under its base name
 (meta-data, user-data, network-config). The volume is labelled `cidata`,
-which is what cosmo-seed (userland/system/seed_read.c) and cloud-init look
+which is what cosmo-seed (userland/system/seed.cee) and cloud-init look
 for.
 
   iso   ISO 9660, 2048-byte blocks. --names joliet (default) adds a Joliet

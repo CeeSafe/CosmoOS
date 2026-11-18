@@ -151,8 +151,8 @@ HOST_CPUTIME_SRCS := $(HOST_COMMON_SRCS) kernel/process/cputime.c kernel/ceesafe
 HOST_NICE_SRCS := $(HOST_COMMON_SRCS) kernel/process/nice.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_nice.c
 HOST_FAIR_SRCS := $(HOST_COMMON_SRCS) kernel/scheduler/fair.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_fair.c
 HOST_UPBE_SRCS := $(HOST_COMMON_SRCS) userland/system/upgrade_be.c tests/host/test_upgrade_be.c
-# Roadmap 1.3 R2: cosmo-seed's readers, alone (no harness: test_seed.py also runs it as a tool).
-HOST_SEED_SRCS := userland/system/seed_read.c userland/system/seed_yaml.c tests/host/test_seed.c
+# Roadmap 1.3 R2: cosmo-seed's readers, generated from seed.cee, alone (no harness: test_seed.py also runs it as a tool).
+HOST_SEED_SRCS := userland/system/seed.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_seed.c
 HOST_NETPARSE_SRCS := $(HOST_COMMON_SRCS) kernel-services/network/netparse.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_netparse.c
 HOST_ELF_SRCS := $(HOST_COMMON_SRCS) kernel/process/elfparse.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_elf.c
 HOST_ACPI_SRCS := $(HOST_COMMON_SRCS) drivers/acpi/acpi_parse.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_acpi.c
@@ -277,11 +277,10 @@ $(HOST_OUT)/test_upgrade_be: $(call src_paths,$(HOST_UPBE_SRCS)) | $(CEE_STAMP)
 	$(Q)mkdir -p $(dir $@)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $^ $(HOST_LDFLAGS) -o $@
 
-$(HOST_OUT)/test_seed: $(call src_paths,$(HOST_SEED_SRCS)) $(ROOT)/userland/system/seed_read.h \
-	$(ROOT)/userland/system/seed_yaml.h
+$(HOST_OUT)/test_seed: $(call src_paths,$(HOST_SEED_SRCS)) | $(CEE_STAMP)
 	$(call log,HOSTCC,$@)
 	$(Q)mkdir -p $(dir $@)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) $(filter %.c,$^) $(HOST_LDFLAGS) -o $@
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) $^ $(HOST_LDFLAGS) -o $@
 
 $(HOST_OUT)/test_gpt: $(call src_paths,$(HOST_GPT_SRCS)) | $(CEE_STAMP)
 	$(call log,HOSTCC,$@)

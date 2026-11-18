@@ -270,12 +270,13 @@ marked `login` (`tests/guide/run_guide.py`).
 
 ## cosmo-seed on the host (`tests/host/test_seed.c`, `test_seed.py`; `make host-test`)
 
-Roadmap 1.3 R2 (design.md, "The seed"). `test_seed`, built from
-`userland/system/seed_read.c` and `seed_yaml.c` as they are, checks the
+Roadmap 1.3 R2 (design.md, "The seed"). `test_seed`, built from the C
+generated from `userland/system/seed.cee` (through its exports), checks the
 YAML subset when run alone: a `#cloud-config` with a quoted key, a
 `network-config` with a list of maps and flow lists, and parse errors with
 their lines (a block scalar, a tab, stray indentation, a duplicated key, a
-flow map, an anchor, an open quote, a second document). `test_seed.py`
+flow map, an anchor, an open quote, a second document), and three
+documents held at once (cosmo-seed's slots; a fourth refused). `test_seed.py`
 runs it as a tool over seeds `tools/mkseed.py` writes: ISO 9660 with
 Joliet, Rock Ridge and plain names, FAT12 and FAT16 with long names. Each
 is found, and each of its three files (one 2179 bytes, over several
