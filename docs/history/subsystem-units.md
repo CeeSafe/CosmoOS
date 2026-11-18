@@ -3897,3 +3897,13 @@ See the [history index](README.md).
   - The CeeSafe rule's offset: `pipe_floor.c` folded into `pipe.cee` (its
     `kobject_io_type` tables as read-only statics, ADR 0091).
   - Report: `docs/audit/2026-11-19-r2-static-ipv4-report.md`.
+- **R2, third PR: the NoCloud seed (2026-11-19, roadmap 1.3).**
+  - `seed.cee` (ISO 9660 and FAT readers, the YAML subset) and
+    `cosmo-seed.cee`, both CeeSafe user code: `/etc/rc` runs `cosmo-seed`
+    before `svc boot`; the host name and SSH keys once per instance id,
+    the network (`IPV4_SET`, `/etc/resolv.conf`) at every boot with a
+    seed; no seed, nothing said.
+  - `tools/mkseed.py` writes seeds with no host tools; `test_seed`
+    (`make host-test`) reads every layout it writes and damaged ones.
+  - The CeeSafe rule's offset: `sync.c` ported whole.
+  - Report: `docs/audit/2026-11-19-r2-seed-report.md`.
