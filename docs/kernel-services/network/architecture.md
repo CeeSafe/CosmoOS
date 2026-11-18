@@ -31,7 +31,7 @@ IPv4, IPv6, UDP, TCP, sockets.
         │
         ▼
    drivers/virtio/virtio_net.c   virtio-net as a boot module: `eth0`
-   kernel/core/fwcfg.c + kernel/arch/x86_64/fwcfg.c
+   kernel/core/fwcfg.cee + kernel/arch/x86_64/fwcfg.c
                                  QEMU fw_cfg: test parameters and static addresses at boot
 ```
 

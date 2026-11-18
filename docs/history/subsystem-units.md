@@ -3873,9 +3873,12 @@ See the [history index](README.md).
     image copied to a larger disk), and reports it in `gpt_table.backup_lba`;
     `part.cee` logs the disk as grown. A backup past the end or inside the
     usable range is refused with its own reason.
-  - `cosmo-grow --table`, run by init before the root is unlocked or
-    mounted: a table exactly as `gpt_build` writes it moves to the disk's
-    end, backup first, and the root partition, when last, grows to it.
+  - `cosmo-grow --table` (`cosmo-grow.cee`, the first whole user programs
+    in CeeSafe with `hostname.cee`), run by init before the root is
+    unlocked or mounted: a table exactly as `gpt_build` writes it moves to
+    the disk's end, backup first, and the root partition, when last, grows
+    to it. The C init needs is offset by porting `hostname` and
+    `kernel/core/fwcfg.c` (the CeeSafe rule's gate).
   - `test-install`'s `grow` and `grow-again` stages (a copy four times as
     long; the next boot quiet).
   - Report: `docs/audit/2026-11-18-r2-grown-disk-report.md`.

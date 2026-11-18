@@ -37,16 +37,33 @@ nothing and `root=boot-disk` found no root.
 - **`kernel/block/part.cee`** (CeeSafe): a table that registered and is
   short of the disk logs `part: DISK: the disk grew after its partition
   table was written (backup header at sector N of M)`.
-- **`userland/system/cosmo-grow.c`**, new, `--table DEVICE`: reads the
-  table of DEVICE's disk with the same parser; nothing to do and nothing
-  said when it fits. Otherwise it rebuilds the table with `gpt_build` for
-  its old size and compares head and tail with the disk byte for byte,
-  refusing (exit 3) a table `gpt_build` did not write, so nothing a rebuild
-  drops is lost; builds it for the disk's real size with DEVICE, when it
-  is the CosmoOS root and the last partition, ending at the new last
-  usable sector; parses that from memory; writes the backup, flushes,
-  writes the primary, flushes, clears the old backup header and
-  `RESCAN`s. `blkdevs.c` gains `blkdevs_rescan`.
+- **`userland/system/cosmo-grow.cee`**, new, `--table DEVICE`, a whole
+  user program in CeeSafe: reads the table of DEVICE's disk with the same
+  parser; nothing to do and nothing said when it fits. Otherwise it
+  rebuilds the table with `gpt_build` for its old size and compares head
+  and tail with the disk byte for byte, refusing (exit 3) a table
+  `gpt_build` did not write, so nothing a rebuild drops is lost; builds it
+  for the disk's real size with DEVICE, when it is the CosmoOS root and the
+  last partition, ending at the new last usable sector; parses that from
+  memory; writes the backup, flushes, writes the primary, flushes, clears
+  the old backup header and `RESCAN`s, through its own `/dev/blkctl`
+  channel.
+- **User programs in CeeSafe** (`docs/build/ceesafe.md`, "User programs"):
+  the first version of `cosmo-grow` was C, and #531's first CI run failed
+  the CeeSafe rule's gate (`cee-share`: `userland/` +280, `kernel/` +4
+  lines of C to convert). The build now takes `userland/**/*.cee`
+  (`build/cee.mk`), compiles CeeSafe's runtime for user mode apart from the
+  kernel's object, links the programs' panic hook
+  (`userland/lib/ceesafe_panic.c`, named in FLOOR as the kernel's
+  `ceesafe_panic.c` is), and names an exported `cosmo_program_main` `main`
+  at the link, freestanding CeeSafe having none. `install_gpt.c` is the GPT
+  code alone; `cosmo-install` and `blkid` link the shared runtime.
+- **The C that stays, offset by ports** (the owner's choice, 2026-11-18):
+  init's call (+28 lines) against `hostname` ported whole
+  (`userland/system/hostname.cee`, -32); `gpt.h`'s field and comment (+4)
+  against `kernel/core/fwcfg.cee` (-22, the name built as `ksnprintf` built
+  it, truncated at 63 characters). `cee-share.py --gate`: no tree has more
+  C to convert than `a22afe4e`.
 - **`userland/init/init.c`**: `switch_to_disk_root` runs `cosmo-grow
   --table ROOTDEV` before `unlock_root` and `check_root`.
 - **`tests/boot/install_test.py`**: stages `grow` and `grow-again`

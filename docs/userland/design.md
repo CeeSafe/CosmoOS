@@ -858,7 +858,7 @@ still refused. The partitions register as before, so `root=boot-disk`
 finds its root.
 
 Before it unlocks or mounts the root, `init` runs `cosmo-grow --table
-ROOTDEV` (`userland/system/cosmo-grow.c`, in the boot archive and on the
+ROOTDEV` (`userland/system/cosmo-grow.cee`, a user program in CeeSafe, in the boot archive and on the
 root). It reads the root's disk's table and, when the table fits the disk,
 does nothing and says nothing: every boot but the first on a larger disk.
 Otherwise it rewrites the table for the disk's real size: the usable range
