@@ -467,6 +467,46 @@ that file. Each stage boots the one installed disk; logs in
 | `pending` | an upgrade to B stopped after its set switch: `--repair` finishes its base pass; then B, B |
 | `last` | on a disk of its own, from the published `BE_LAST_TAG` (v1.0.14), the release before this build (roadmap 1.3 R0): it installs itself, its own `cosmo-upgrade` takes the environment and switches to A; A boots verified on its own base system, whose version `--list` gives and which is not v1.0.14's, and `--list` names the environment; A's `--rollback` reboots into v1.0.14 verified with the release key, with the `/etc` file as it was before the upgrade. `BE_ONLY=last` runs it alone |
 
+## `make test-cloud` (`tests/boot/cloud_test.py`)
+
+Roadmap 1.3 R2's acceptance (design.md, "First boot without a console").
+Release builds in CI (in the `net-login` job, both architectures). It
+boots the cloud image, `$(OUT)/cosmoos-ARCH-cloud.qcow2`, which `make
+cloud-image` makes (`scripts/mkcloudimage.py`: the live image installs
+itself on a blank 256 MiB disk in QEMU, the root is checked to have at
+least half as much again free as it holds, and the disk is converted to
+QCOW2). Each stage converts it to a raw disk and makes that four times
+as long (a sparse tail); every serial log is kept in
+`$(OUT)/test-cloud/`. A key is made for the run (`ssh-keygen -t
+ed25519`), and the seeds are written by `tools/mkseed.py`.
+
+- **seed**: the disk alone (`QEMU_DISKS=boot`) and an ISO 9660 seed
+  (Joliet names) as a second virtio disk. `meta-data` names an instance
+  id and a `local-hostname`; `user-data` (`#cloud-config`) a `hostname`,
+  which wins, and the run's key; `network-config` gives the virtio NIC,
+  matched by its MAC, `10.0.2.50/24` via `10.0.2.2` and name server
+  `10.0.2.3`. QEMU forwards a host port to `10.0.2.50:22`, so only the
+  seed's address answers. The log must show the disk root, the kernel's
+  `the disk grew` line and `cosmo-grow`'s, `cosmofs: member 0 grows from
+  N to M blocks` with no free-count warning, and `cosmo-seed`'s `seed on
+  DEV (ISO 9660)`, `host name NAME`, `1 SSH key(s) added`, `eth0
+  10.0.2.50/24 via 10.0.2.2` and `instance ID applied`, and `svc: dropbear
+  started`. The host's OpenSSH logs in with the key (the host key
+  accepted and recorded): `hostname` is the seed's, `df -k /` shows 4M
+  KiB, `authorized_keys` holds one line and `ip -4 addr show eth0` the
+  seed's address. After power-off, on the host: the root partition ends
+  at the disk's last usable sector, and holds M whole 4 KiB blocks.
+- **again**: the same disk with the same seed written as FAT12: no
+  growth line, `seed on DEV (FAT)`, `instance ID already applied`, no
+  host name or key line, the address set again (the kernel keeps none
+  across a boot); ssh logs in with the host key checked
+  (`StrictHostKeyChecking=yes`), and the host name, `df` and the one key
+  are as before.
+- **noseed**: another copy of the image, four times as long, alone: the
+  disk root, the growth lines, not one `cosmo-seed:` line, eth0 bound by
+  the kernel's DHCP client to `10.0.2.15`, `df -k /` the grown size, and
+  no `/var/lib/cloud`.
+
 ## `make test-net-login` (`tests/boot/net_login_test.py`)
 
 Roadmap M4's acceptance. Release builds in CI (job `net-login`, both

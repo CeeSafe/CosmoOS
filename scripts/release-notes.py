@@ -78,7 +78,10 @@ def main():
              "sound randomness, on x86-64 and AArch64 under QEMU.\n")
     n.append(f"Start with the [user guide](https://github.com/vkuttyp/CosmoOS/blob/{a.tag}/docs/guide/README.md). "
              "Each architecture's files: `cosmoos-ARCH.img` (the signed live image), its UEFI loader, `kernel.elf`, "
-             "`boot.tar`, `cmdline`, the signed `manifest`, `cosmo-upgrade` and its signed package. "
+             "`boot.tar`, `cmdline`, the signed `manifest`, `cosmo-upgrade` and its signed package; and "
+             "`cosmoos-ARCH-cloud.qcow2`, an installed system for a cloud, which grows to its disk and takes its SSH key, "
+             "host name and network from a NoCloud seed (made from the live image by an install in QEMU, so not "
+             "byte-reproducible like the rest; docs/userland/design.md, \"First boot without a console\"). "
              f"`cosmoos-{a.tag}-src.tar.gz` is the source, with the C generated from its CeeSafe sources beside them, so it "
              "builds with no CeeSafe compiler (`make`). `SHA256SUMS.sig` is "
              "`SHA256SUMS`'s detached signature with the release key below (`scripts/modsign.py verify-detached`, or "

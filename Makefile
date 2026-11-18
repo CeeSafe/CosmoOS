@@ -23,6 +23,8 @@
 #   make test-upgrade shell completeness S7: upgrade an installed v1.0.3 to this build, roll back (CI: BUILD=release)
 #   make test-busybox roadmap M3: BusyBox ash's scripted test and testsuite subset (CI: BUILD=release)
 #   make test-security roadmap M5: verified boot refuses tampered files; VERIFY_BOOT=0 says so (CI: BUILD=release)
+#   make test-cloud   roadmap 1.3 R2: the cloud image, grown, with a NoCloud seed: ssh by its key (CI: BUILD=release)
+#   make cloud-image  the cloud image, cosmoos-ARCH-cloud.qcow2 (an install made in QEMU; not in the release set)
 #   make test-net-login roadmap M4: DHCP, wget by address and by name on the installed system (CI: BUILD=release)
 #   make test-pkg-net  roadmap 1.1 P6: pkg against HTTPS repositories served by the harness (CI: BUILD=release)
 #   make test-display  virtio-gpu: the console on the display's own size, read back from a screendump (CI: BUILD=release)
@@ -59,7 +61,7 @@ include $(ROOT)/build/cee.mk
 include $(ROOT)/build/toolchain.mk
 include $(ROOT)/build/rules.mk
 
-.PHONY: FORCE all kernel boot modules image vm-images iso run test test-images test-entropy test-modcycle test-install test-encrypt test-encrypt-b1b4 test-snapshot test-fsck test-pci-hotplug test-mirror test-pkgtx test-be test-large test-fill test-selfhost test-upgrade test-security test-busybox test-net-login test-pkg-net test-display test-gic test-platforms test-guard test-smp2 test-crash test-crash-cee test-stackprot test-wxn test-chaos test-harness-retry analyze analysis-gate reproducible release release-set compile-commands check-tools check-secrets check-docs cee cee-check dist clean help litmus
+.PHONY: FORCE all kernel boot modules image vm-images cloud-image test-cloud iso run test test-images test-entropy test-modcycle test-install test-encrypt test-encrypt-b1b4 test-snapshot test-fsck test-pci-hotplug test-mirror test-pkgtx test-be test-large test-fill test-selfhost test-upgrade test-security test-busybox test-net-login test-pkg-net test-display test-gic test-platforms test-guard test-smp2 test-crash test-crash-cee test-stackprot test-wxn test-chaos test-harness-retry analyze analysis-gate reproducible release release-set compile-commands check-tools check-secrets check-docs cee cee-check dist clean help litmus
 .DEFAULT_GOAL := all
 
 include $(ROOT)/kernel/kernel.mk
@@ -101,6 +103,18 @@ vm-images: $(QCOW2_IMAGE) $(VMDK_IMAGE)
 $(QCOW2_IMAGE) $(VMDK_IMAGE) &: $(IMAGE) $(ROOT)/scripts/mkvmimages.py
 	$(call log,VMIMAGES,$(QCOW2_IMAGE) $(VMDK_IMAGE))
 	$(Q)$(PYTHON) $(ROOT)/scripts/mkvmimages.py $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE)
+
+# The cloud image (roadmap 1.3 R2; scripts/mkcloudimage.py): the live image
+# installed on a small disk by cosmo-install in QEMU, as QCOW2. Not in the
+# release set, which two builds must make byte for byte (its GUIDs are
+# drawn at install): the release workflow makes it from the published live
+# image in a job of its own. make test-cloud boots it.
+CLOUD_IMAGE := $(OUT)/cosmoos-$(ARCH)-cloud.qcow2
+cloud-image: $(CLOUD_IMAGE)
+$(CLOUD_IMAGE): $(IMAGE) $(ROOT)/scripts/mkcloudimage.py $(ROOT)/tests/boot/install_test.py
+	$(call log,CLOUD,$@)
+	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
+		$(PYTHON) $(ROOT)/scripts/mkcloudimage.py --image $(IMAGE) --out $@ --timeout $(BOOT_TIMEOUT)
 
 # The boot archive: init plus the boot-time and test modules, in the
 # order the kernel loads them (dependencies first). See
@@ -394,6 +408,16 @@ test-images: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE)
 	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
 		$(PYTHON) $(ROOT)/tests/boot/images_test.py --image $(IMAGE) --qcow2 $(QCOW2_IMAGE) --vmdk $(VMDK_IMAGE) \
 		--iso $(ISO_IMAGE) --workdir $(OUT)/test-images --timeout $(BOOT_TIMEOUT)
+
+# Roadmap 1.3 R2's acceptance test (tests/boot/cloud_test.py;
+# docs/userland/testing.md, "test-cloud"): the cloud image on a disk four
+# times its size with a NoCloud seed -- ssh with the seed's key, its host
+# name and address, the root grown -- again, and without a seed. CI:
+# BUILD=release, in the net-login job.
+test-cloud: $(CLOUD_IMAGE)
+	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
+		$(PYTHON) $(ROOT)/tests/boot/cloud_test.py --cloud $(CLOUD_IMAGE) --workdir $(OUT)/test-cloud \
+		--timeout $(BOOT_TIMEOUT)
 
 # Roadmap 1.2 A1's acceptance test (tests/boot/selfhost_test.py,
 # docs/userland/testing.md, "test-selfhost"): on this build installed,

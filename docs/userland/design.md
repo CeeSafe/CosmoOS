@@ -826,21 +826,26 @@ the network, and grows its root to the disk. The owner chose the shape on
 
 ### The cloud image
 
-The release set gains `cosmo-cloud-ARCH.qcow2`: an installed system, the
-disk `cosmo-install` writes. `scripts/mkcloudimage.py` makes it the way
-`make test-install` makes one: it boots the release's live image in QEMU
-with a blank disk, runs `cosmo-install` onto it, powers off and converts
-the disk to qcow2. The disk is small (the ESP, and a root with the system
-and half as much again free, rounded up to a MiB). `cosmo-install` is
+`cosmoos-ARCH-cloud.qcow2` is an installed system, the disk
+`cosmo-install` writes. `scripts/mkcloudimage.py` (`make cloud-image`)
+makes it the way `make test-install` makes one: it boots the live image in
+QEMU with a blank 256 MiB disk, runs `cosmo-install` onto it, checks that
+the root has at least half as much again free as it holds (it holds about
+20 MiB of its 190), powers off and converts the disk to QCOW2. `cosmo-install` is
 unchanged: its ESP is the release's signed ESP byte for byte, its root is
 `root=boot-disk`, `/etc/svc/dropbear` is written with an empty
 `/root/.ssh/authorized_keys`, and `/etc/passwd` holds `root:*`. Nothing
 specific to a machine is in the image: dropbear makes its host key at its
 first start, which is on the machine, and there is no `/etc/hostname`.
 Every machine made from one image shares its disk and partition GUIDs and
-its pool's uuid, as cloud images of other systems do. The GUIDs are drawn
-when the image is built, so the image is not byte-reproducible; the
-release set records its SHA-256 like every other file in it.
+its pool's uuid, as cloud images of other systems do.
+
+The GUIDs are drawn when the image is built, so the image is not
+byte-reproducible, and `make release`'s set, which two builds must make
+byte for byte, does not hold it. The release workflow makes it in a job
+of its own (`cloud`, per architecture) from the published set's live
+image, boots it with `tests/boot/cloud_test.py`, and the publish step
+adds it to the signed `SHA256SUMS` beside the set.
 
 ### A disk that grew
 

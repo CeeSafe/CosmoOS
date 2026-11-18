@@ -609,8 +609,13 @@ requires the two `SHA256SUMS` to be equal before it publishes.
    builds again and requires its `SHA256SUMS` to equal the published
    set's, so the images tested are the bytes published; then runs the
    test with `BUILD=release`. `guide-macos` runs the guide on macOS
-   against the published set.
-5. `publish`: one `SHA256SUMS` for both architectures, signed with the
+   against the published set. `cloud` (roadmap 1.3 R2) makes each
+   architecture's `cosmoos-ARCH-cloud.qcow2` from the published live
+   image (`scripts/mkcloudimage.py`, an install in QEMU, so not
+   reproducible and not in the compared sets) and boots it with
+   `tests/boot/cloud_test.py`.
+5. `publish`: one `SHA256SUMS` for both architectures and the cloud
+   images, signed with the
    release key (`SHA256SUMS.sig`, checked against `tools/keys/*.pub`
    before publishing), the notes (`docs/releases/<tag>.md` first when the
    tag has one), then the generated part
