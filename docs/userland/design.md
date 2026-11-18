@@ -869,11 +869,17 @@ exactly as `gpt_build` writes it is rewritten (cosmo-install's, so the
 cloud image's): `cosmo-grow` rebuilds it for its old size and compares it
 with the disk byte for byte first, so nothing a rebuild would drop -- an
 attribute, a name, another tool's layout -- is lost; another table is left
-as it is (exit 3). It writes the new backup first and the primary last, so
-a crash between leaves the old table, which the kernel still accepts;
-then it clears the old backup header and `RESCAN`s. A root partition that
-is not the last one keeps its size (the table is still moved), and
-`cosmo-grow` says so. Whatever it says, the root is then mounted as it is.
+as it is (exit 3), and so is a disk that grew by fewer sectors than the
+backup takes (the new backup would overlap the old). It writes the new
+backup first and the primary last, so a crash between leaves the old
+table, which the kernel still accepts; a crash during the primary's write
+(33 sectors) can leave a table the kernel refuses, since it does not
+recover from one copy (backlog BLK-11). Then it clears the old backup
+header and `RESCAN`s; a refused rescan that leaves every partition
+registered (one in use) means the new sizes apply from the next boot, and
+one that leaves fewer is a failure. A root partition that is not the last
+one keeps its size (the table is still moved), and `cosmo-grow` says so.
+Whatever it says, the root is then mounted as it is.
 
 ### The file system grows
 

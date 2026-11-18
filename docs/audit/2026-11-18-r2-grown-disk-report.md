@@ -140,9 +140,8 @@ end, the ESP's entry unchanged and the root's ending at the new last usable
 sector, 2097118 (the 32 sectors of backup entries and the backup header
 after it).
 
-The cosmofs root on the grown partition still has its old size: its member
-table says how many blocks it has, and a member smaller than its device
-mounts (design.md, "The member table"). Growing it is the next PR.
+Those boots were of the first commit, before the root's pool grew; from
+`97c4eb0b` the pool grows too, and the grow stage checks it (Validation).
 
 ## Validation
 
@@ -181,3 +180,11 @@ load (load average 11.75 / 65.28 / 77.76) and passed alone in 209.3 s;
 
 - Only a table `gpt_build` wrote is moved; another is reported and left.
 - A root that is not the last partition keeps its size.
+- A disk that grew by fewer sectors than the backup's (33 of 512 bytes) is
+  left as it is, with a line: the new backup would overlap the old one,
+  which is the disk's table until the primary is written (review).
+- A crash between writing the new backup and writing the primary leaves
+  the old table; a crash during the primary's write (its header and
+  entries are 33 sectors, not one atomic write) can leave a primary the
+  kernel refuses, and the kernel does not fall back to the intact backup
+  (gpt.h: no recovery from one copy). Backlog BLK-11.

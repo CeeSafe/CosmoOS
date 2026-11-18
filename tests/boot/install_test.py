@@ -650,9 +650,10 @@ def stage_grow(args, results, inst, nonce):
         need(out, rf"^\S+\s+{new_blocks * 4}\s", "df / after the root grew")
         # More than the old root held, free or not: the new blocks are usable. Incompressible (cosmofs compresses
         # records) without /dev/urandom (backlog USR-7): busybox gzipped, appended to itself to 208 MiB, more than the old root's 191 MiB in all.
+        # A failed append ends the loop with the file short: its size is checked, not the loop's status.
         out = b.status("gzip -c /bin/busybox > /tmp/g && : > /big && "
-                       "while [ $(stat -c %s /big) -lt 218103808 ]; do cat /tmp/g >> /big || break; done && "
-                       "sync && sha256sum /big", "big")
+                       "while [ $(stat -c %s /big) -lt 218103808 ]; do cat /tmp/g >> /big || break; done; "
+                       "sync && [ $(stat -c %s /big) -ge 218103808 ] && sha256sum /big", "big")
         need(out, r"^big=0$", "writing 208 MiB of gzip output on the grown root")
         big_sum = need(out, r"^([0-9a-f]{64})\s+/big$", "the grown root's /big").group(1)
         rc = b.finish()
@@ -744,11 +745,12 @@ def main():
         stages = args.stages.split(",")
         inst = stage_install(args, results)
         nonce = f"m2-persisted-{os.getpid()}-{int(time.time())}"
-        if "reboot" in stages:
+        # grow copies the disk reboot and persist wrote (it reads /persist.txt back): it runs them first.
+        if "reboot" in stages or "grow" in stages:
             stage_reboot(args, results, inst, nonce)
             stage_persist(args, results, inst, nonce)
-            if "grow" in stages:
-                stage_grow(args, results, inst, nonce)
+        if "grow" in stages:
+            stage_grow(args, results, inst, nonce)
         if "fallback" in stages:
             stage_fallback(args, results)
     except Fail as e:

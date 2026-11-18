@@ -42,7 +42,8 @@ def main():
     a = ap.parse_args()
     if not a.old:
         rc, out = run(ROOT, a.arch)
-        ok = rc == 0 and "host-test: PASS" in out
+        # host-test prints "== TEST" before each test and stops at the first that fails.
+        ok = rc == 0 and "test_cfscore" in out and not any(l.startswith("FAIL ") for l in out.splitlines())
         print(f"PROBE: {'PASS' if ok else 'FAIL'} mode=fixed arch={a.arch}: test_cfscore "
               f"{'passed' if ok else 'failed'}")
         return 0 if ok else 1

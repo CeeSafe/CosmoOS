@@ -67,6 +67,7 @@ Open lines (struck lines are not counted):
 - **BLK-8** nice-to-have, L. The rest of the NVMe feature set, only for a demonstrated device or workload.
 - **BLK-9** nice-to-have, M. No NVMe namespace management (create, attach, delete namespaces); a controller's namespaces are what it reports at probe (out of roadmap 1.2 B3's scope).
 - **BLK-10** usability, S. `cosmo-grow --table` (roadmap 1.3 R2) moves only a table exactly as `gpt_build` writes it, and grows the root only when it is the last partition: a grown disk partitioned by another tool keeps its table short of the end (the kernel accepts it) and its root its size.
+- **BLK-11** robustness, M. The GPT parser takes a table only whole, with no recovery from one copy (gpt.h): a crash while `cosmo-grow` writes the primary (header and entries, 33 sectors) on a grown disk's first boot can leave a primary the kernel refuses beside a valid backup on the last sector, and no root. UEFI's rule (use the backup when the primary fails) and a primary rewritten from it would close it.
 
 ## Boot chain and verified boot
 

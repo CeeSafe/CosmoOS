@@ -296,6 +296,19 @@ unsafe fn find(name: Slice<u8>) -> usize? {
     return null;
 }
 
+/// How many listed partitions `disk` has.
+/// Safety: as st.
+unsafe fn partsOf(disk: Slice<u8>) -> u32 {
+    let s = st();
+    var count: u32 = 0;
+    for (i in 0..s.ndevs) {
+        if ((s.devs[i].flags & FLAG_PART) != 0 && nameOf(borrow s.devs[i].disk) == disk) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
 /// `count` sectors of device `dev` from `lba` into `into`, in reads of at most IO_MAX.
 /// Safety: as st.
 unsafe fn readSectors(dev: usize, lba: u64, count: u64, into: SliceMut<u8>) -> bool {
@@ -534,6 +547,20 @@ unsafe fn growTable(arg: *CChar) -> i32 {
         return 0; // the table fits the disk: every boot but the first on a larger one
     }
     let n0 = s.table.backup_lba + 1;
+    if (n - n0 < tailSectors(ss) as u64) {
+        // The new backup would overlap the old one: writing it would damage the table the disk still has until
+        // the primary is written. So few sectors are not worth a partition; the kernel accepts the table as it is.
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": the disk grew by ");
+        line.decimal(n - n0);
+        line.text(" sectors, fewer than the ");
+        line.decimal(tailSectors(ss) as u64);
+        line.text(" of the table's backup; it is left as it is\n");
+        out(1, borrow line);
+        return 0;
+    }
     if (!isBuilt(disk, n0)) {
         var line = TextWriter.create(mut buffer[..]);
         line.text("cosmo-grow: ");
@@ -663,13 +690,20 @@ unsafe fn growTable(arg: *CChar) -> i32 {
     match (rescan(dnm)) {
         Some(k) => { parts2 = k; }
         null => {
-            // -EBUSY among the refusals: a partition is in use, and the new sizes apply from the next boot.
+            // Refused. A partition in use (-EBUSY) leaves every partition registered, and the new sizes apply from
+            // the next boot; a scan that failed after removing them leaves fewer. What is listed now says which
+            // (the channel's errno is libc's, a name CeeSafe does not import).
             var bl = TextWriter.create(mut buffer[..]);
             bl.text("cosmo-grow: ");
             bl.bytes(dnm);
-            bl.text(": the partitions were not rescanned; the new sizes apply from the next boot\n");
-            out(1, borrow bl);
-            return 0;
+            if (listDevices() && partsOf(dnm) == np) {
+                bl.text(": the partitions were not rescanned; the new sizes apply from the next boot\n");
+                out(1, borrow bl);
+                return 0;
+            }
+            bl.text(": rescanning the partitions failed, and they are no longer all registered\n");
+            out(2, borrow bl);
+            return 1;
         }
     }
     if (parts2 != np) {
