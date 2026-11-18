@@ -310,7 +310,7 @@ Open lines (struck lines are not counted):
 - **SEC-12** nice-to-have, S. No supplementary groups at login (`initgroups`).
 - **SEC-13** nice-to-have, M. No setuid/setgid bits or file capabilities (so `AT_SECURE` follows the credentials only).
 - **SEC-14** security, S. `SYS_spawn` copies its request twice (the first fields, then the whole struct once the flags say how long it is) and uses the second copy's flags unchecked: a thread rewriting them between the copies passes a combination the checks refuse (`SETSID` with `SETPGID`, `FOREGROUND` without `SETPGID`) to `process_spawn` (`kernel/syscall/procs.cee`, as `native.c` before it).
-- **SEC-15** nice-to-have, S. A C string a CeeSafe static points to is emitted as a writable `static char` array (ceesafec 0.37.0, and 0.48.1 still), so `personality_native`'s name is in writable data where C's literal was read-only; the record that points at it is read-only. A CeeSafe change, not this tree's.
+- **SEC-15** nice-to-have, S. A C string a CeeSafe static points to is emitted as a writable `static char` array (ceesafec 0.37.0, and 0.48.1 and 0.57.1 still), so `personality_native`'s name is in writable data where C's literal was read-only; the record that points at it is read-only. A CeeSafe change, not this tree's.
 
 ## Testing and CI
 

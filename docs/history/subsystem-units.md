@@ -3859,3 +3859,8 @@ See the [history index](README.md).
     43827130336). The script now accepts exactly those bytes and still
     pads them away; `tests/host/test_mkvmimages.py` models the rewrite.
   - Report: `docs/audit/2026-11-16-vmdk-redraw-report.md`.
+- **ceesafec pinned at 0.57.1 (2026-11-16).**
+  - From 0.48.1, at the owner's request. No `.cee` source changed; every
+    kernel object on both architectures, release and debug, is the same
+    code and data under both compilers.
+  - Report: `docs/audit/2026-11-16-ceesafec-0571-report.md`.
