@@ -877,17 +877,19 @@ is not the last one keeps its size (the table is still moved), and
 
 ### The file system grows
 
-After the root is mounted, `init` runs `cosmo-grow --fs /` on every boot;
-on a root that already fills its partition it does nothing. cosmofs grows
-a member online: the member's block count and the superblock's total
-become the device's (at most `CFS_MAX_BLOCKS`, which is said when it
-binds), the new bitmap chunks are added to the member's allocation index
-free but for the last chunk's padding, and the in-memory bitmap is
-extended under `cfs->lock`; one commit writes all of it, so a crash leaves
-the old size or the new one. Only the last member of a pool, with no
-mirror and no copy record, grows in this unit (the cloud image's pool is
-one plain member); the rest is refused with a line naming why. The design
-is in the cosmofs design, "Growing a member".
+`init` mounts the root with `COSMO_MOUNT_GROW` (a writable cosmofs
+mount's flag; any other refuses it). A pool of one member whose device is
+larger than the member table says grows as the table loads: the member's
+block count and the superblock's total become the device's (at most
+`CFS_MAX_BLOCKS`, said when it binds), the new blocks are free in memory,
+every bitmap chunk that holds one is dirty, and the mount commits before
+it returns, so `df` and the disk agree from the first command. A crash
+before that commit leaves the old size, which the next mount grows again.
+The kernel says `cosmofs: member 0 grows from N to M blocks`. A member with
+copies, a pool with spares and a pool of several members keep their size
+(a line says why when the device is larger). On a root that already fills
+its partition the flag changes nothing. The design is in the cosmofs
+design, "Growing a member".
 
 Growth does not depend on the seed: a cloud image booted without one still
 fills its disk. An installed disk whose root already fills it is unchanged.

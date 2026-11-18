@@ -637,8 +637,24 @@ def stage_grow(args, results, inst, nonce):
         root_len = old_parts[1][4] - old_parts[1][3] + 1
         m = need(log, rf"^cosmo-grow: ({disk}p?2): (\d+) sectors, was {root_len}$", "cosmo-grow growing the root")
         need(log, rf"^init: switched to the disk root {re.escape(m.group(1))} \(root=boot-disk\)$", "the grown boot")
+        # The file system takes the partition (COSMO_MOUNT_GROW): 4 KiB blocks, the partition's whole ones.
+        new_blocks = int(m.group(2)) * SS // 4096
+        g = need(log, rf"^\[ INFO\] cosmofs: member 0 grows from (\d+) to {new_blocks} blocks$", "the root's pool growing")
+        old_blocks = int(g.group(1))
+        if old_blocks != root_len * SS // 4096:
+            raise Fail(f"the pool grew from {old_blocks} blocks, expected the old partition's {root_len * SS // 4096}")
+        no_free_warning(log, "the grown root's mount")
         out = b.run("cat /persist.txt && echo read-ok")
         need(out, rf"^{nonce}$", "the grown disk's /persist.txt")
+        out = b.run("df -k / | tail -n 1")
+        need(out, rf"^\S+\s+{new_blocks * 4}\s", "df / after the root grew")
+        # More than the old root held, free or not: the new blocks are usable. Incompressible (cosmofs compresses
+        # records) without /dev/urandom (backlog USR-7): busybox gzipped, appended to itself to 208 MiB, more than the old root's 191 MiB in all.
+        out = b.status("gzip -c /bin/busybox > /tmp/g && : > /big && "
+                       "while [ $(stat -c %s /big) -lt 218103808 ]; do cat /tmp/g >> /big || break; done && "
+                       "sync && sha256sum /big", "big")
+        need(out, r"^big=0$", "writing 208 MiB of gzip output on the grown root")
+        big_sum = need(out, r"^([0-9a-f]{64})\s+/big$", "the grown root's /big").group(1)
         rc = b.finish()
         if rc != EXIT_SUCCESS:
             raise Fail(f"grow boot: QEMU exit code {rc}")
@@ -650,22 +666,29 @@ def stage_grow(args, results, inst, nonce):
     if parts[0] != old_parts[0] or parts[1][:4] != old_parts[1][:4] or parts[1][4] != last_usable:
         raise Fail(f"grown: partitions {parts}, expected the ESP unchanged and the root to end at {last_usable}")
     results.append(f"grow: PASS in {b.elapsed():.1f}s ({old_n} -> {n} sectors; root {root_len} -> "
-                   f"{parts[1][4] - parts[1][3] + 1} sectors; the host reads both copies at the new end)")
+                   f"{parts[1][4] - parts[1][3] + 1} sectors; the host reads both copies at the new end; the pool "
+                   f"{old_blocks} -> {new_blocks} blocks; 208 MiB written)")
     # Again: the table fits, and nothing is said.
     b = Boot("grow-again", grown, args.workdir, {"QEMU_DISKS": "boot"}, args.timeout)
     try:
         b.wait_prompt("the first prompt")
         log = b.text()
         need(log, r"^init: switched to the disk root \S+ ", "the second boot of the grown disk")
-        if re.search(r"the disk grew after|^cosmo-grow:", log, re.M):
+        if re.search(r"the disk grew after|^cosmo-grow:|cosmofs: member 0 grows", log, re.M):
             raise Fail("the second boot of the grown disk grew it again")
+        need(log, r"^cosmofs: root checked, 0 findings, 0 repaired$", "the grown root's check at the next boot")
+        no_free_warning(log, "the grown root's second mount")
+        out = b.run(f"sha256sum /big && df -k / | tail -n 1")
+        need(out, rf"^{big_sum}\s+/big$", "/big read back from the grown root")
+        need(out, rf"^\S+\s+{new_blocks * 4}\s", "df / at the next boot")
         rc = b.finish()
         if rc != EXIT_SUCCESS:
             raise Fail(f"grow-again boot: QEMU exit code {rc}")
     except Exception:
         b.kill()
         raise
-    results.append(f"grow-again: PASS in {b.elapsed():.1f}s (nothing to do, nothing said)")
+    results.append(f"grow-again: PASS in {b.elapsed():.1f}s (nothing to do, nothing said; the root checked clean, "
+                   "/big read back)")
 
 
 def stage_fallback(args, results):

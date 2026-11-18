@@ -60,8 +60,9 @@ _Static_assert(sizeof(struct cfs_super) <= 21 * 8 && sizeof(struct cfs_mac) <= 5
                    sizeof(struct cfs_inode) <= 32 * 8,
                "cosmofs_core.cee's stack slots");
 
-/* The digest of the C (cosmofs_core.c, 2026-11-07), which the CeeSafe port gives. */
-#define CORE_DIGEST 0x25fe84ab2d7cdbbfull
+/* The digest of the C (cosmofs_core.c, 2026-11-07), which the CeeSafe port gave, until statfs reported the members'
+ * blocks rather than the linear span (roadmap 1.3 R2, 2026-11-18): the only change in what the rounds see. */
+#define CORE_DIGEST 0x2756f4329f66990bull
 #define ROUNDS 6000u
 #define SEED 0xC05E0F5A2026C0DEull
 
@@ -931,6 +932,12 @@ static void live_op(void)
         struct vfs_statfs st;
         memset(&st, 0, sizeof(st));
         rc = cosmofs_fs_type.statfs(&g_mnt, &st);
+        /* The pool's blocks are its members', not the linear span's whole chunks (roadmap 1.3 R2: df reported the
+         * padding of every member's last chunk as capacity). */
+        uint64_t real = 0;
+        for (unsigned v = 0; v < g_fs->nmembers; v++)
+            real += g_fs->mem[v].nblocks;
+        EXPECT(rc != 0 || st.blocks == real);
         mix(&st, sizeof(st));
         break;
     }

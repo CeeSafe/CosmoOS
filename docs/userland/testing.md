@@ -229,10 +229,18 @@ typed at the prompt, every serial log kept in `$(OUT)/test-install/`.
   written (backup header at sector N-1 of 4N)`, `cosmo-grow`'s `the
   partition table now covers 4N sectors (it covered N)` and the root's
   new and old sector counts, and the switch to the disk root;
-  `/persist.txt` still holds the nonce. On the host both GPT copies are
-  valid and equal at the new end, the ESP's entry is unchanged and the
-  root's ends at the new last usable sector. **grow-again** boots the
-  same disk: the disk root, and no `the disk grew` or `cosmo-grow:` line.
+  `/persist.txt` still holds the nonce. The pool grows with it: the
+  kernel's `cosmofs: member 0 grows from N to M blocks` with N the old
+  partition's whole 4 KiB blocks and M the new one's, no free-count
+  warning, `df -k /` showing M blocks, and 208 MiB (more than the old
+  root held) of `/bin/busybox` gzipped and appended to itself -- incompressible,
+  as cosmofs compresses records -- written with its SHA-256 taken. On the host
+  both GPT copies are valid and equal at the new end, the ESP's entry is
+  unchanged and the root's ends at the new last usable sector.
+  **grow-again** boots the same disk: the disk root, no `the disk grew`,
+  `cosmo-grow:` or `grows` line, `cosmofs: root checked, 0 findings, 0
+  repaired`, no free-count warning, the same `df` size and `/big`'s
+  SHA-256 read back.
 - **fallback**: a copy of the live image whose command line says
   `root=vda` (the blank scratch disk on both machines), re-signed with the
   build's key (`--key`, `scripts/mkmanifest.py resign`): the kernel

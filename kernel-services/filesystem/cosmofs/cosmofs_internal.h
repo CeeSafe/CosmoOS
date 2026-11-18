@@ -164,6 +164,13 @@ struct cfs {
      * the checker sees is what a writable mount would see (design.md,
      * "Read-only mounts"; CFS-1). */
     bool rdonly;
+    /* MOUNT_GROW (roadmap 1.3 R2; design.md, "Growing a member"): the pool's
+     * last member grows to its device as the member table loads.
+     * grown_from is its block count before (0: nothing grew); the blocks
+     * past it are free in memory, every bitmap chunk holding one is dirty,
+     * and the mount's commit writes them with the member table. */
+    bool grow;
+    uint64_t grown_from;
     unsigned replay_freed;     /* blocks the mount's free-record replay released */
     unsigned replay_orphans;   /* inodes its orphan replay released */
     /* What the mount did, for the check on an unmounted device

@@ -143,6 +143,8 @@ extern "C" {
         rollback_failed: bool;
         failed: i32;
         rdonly: bool;
+        grow: bool;
+        grown_from: u64;
         replay_freed: u32;
         replay_orphans: u32;
         load_stage: u32;
@@ -353,6 +355,7 @@ const EKEYREJECTED: i32 = 129;
 const VNODE_HASH: u32 = 64;
 const MOUNT_RDONLY: u32 = 1;
 const MOUNT_DETACHED: u32 = 8;
+const MOUNT_GROW: u32 = 16;
 const MOUNT_STATE_DEGRADED: u32 = 1;
 const SCHED_PRIO_DEFAULT: i32 = 32;
 const STAGE_SUPER: u32 = 1;
@@ -409,6 +412,12 @@ unsafe fn bitTest(map: *mut u8, i: u64) -> bool => (map.add((i >> 3) as usize).r
 unsafe fn bitSet(map: *mut u8, i: u64) {
     let at = map.add((i >> 3) as usize);
     at.write(at.read() | (1u8 << truncate<u8>(i & 7)));
+}
+
+/// Safety: as bitTest.
+unsafe fn bitClear(map: *mut u8, i: u64) {
+    let at = map.add((i >> 3) as usize);
+    at.write(at.read() & ((1u8 << truncate<u8>(i & 7)) ^ 0xFF));
 }
 
 /// Safety: `s` holds a terminated string.
@@ -613,8 +622,12 @@ unsafe fn loadBitmap(fs: *mut cfs) -> i32 {
             break;
         }
         let slots = Slice.fromRaw(Ptr.toBorrow(idx as *cfs_buf).data as *u8, CFS_BLOCK);
+        // A member that grew at this mount (cfs_members_load) has on disk only the chunks of its old size; its index
+        // names no others (design.md, "Growing a member").
+        let grew = f.grown_from != 0 && v + 1 == f.nmembers;
+        let onDisk = if (grew) truncate<u32>((f.grown_from + CFS_BITS_PER_BITMAP - 1) / CFS_BITS_PER_BITMAP) else m.nchunks;
         var c: u32 = 0;
-        while (c < m.nchunks && rc == 0) {
+        while (c < onDisk && rc == 0) {
             var bm = 0 as *mut cfs_buf;
             rc = cfs_buf_get(
                 fs, ByteOrder.readU64LE(slots, CFS_MHDR_SIZE + c as usize * 8), CFS_KIND_BITMAP,
@@ -634,6 +647,16 @@ unsafe fn loadBitmap(fs: *mut cfs) -> i32 {
         cfs_buf_put(fs, idx);
         if (rc != 0) {
             break;
+        }
+        // The grown blocks are free -- the old last chunk's padding included, whatever it held -- and every chunk that
+        // holds one is written by the mount's commit, the new ones into the index slots past the old count.
+        if (grew) {
+            for (b in f.grown_from..m.nchunks as u64 * CFS_BITS_PER_BITMAP) {
+                bitClear(f.bitmap, m.base + b);
+            }
+            for (k in truncate<u32>(f.grown_from / CFS_BITS_PER_BITMAP)..m.nchunks) {
+                f.bitmap_dirty.add(m.chunk0.wrappingAdd(k) as usize).write(1);
+            }
         }
         // The tail of a member's last chunk addresses nothing: mark it taken so the allocator can never reach it.
         for (b in m.nblocks..m.nchunks as u64 * CFS_BITS_PER_BITMAP) {
@@ -656,8 +679,10 @@ unsafe fn loadBitmap(fs: *mut cfs) -> i32 {
     f.free_blocks = free;
     // The superblock's count is the bitmap's as that commit wrote it, so the two are compared now, before the replay
     // below frees the blocks the commit released after its root was durable: compared after it, every mount following
-    // an unmount warned by the last commit's frees (4-7 blocks, roadmap 1.1 P3).
-    if (f.free_blocks != f.sb.free_blocks) {
+    // an unmount warned by the last commit's frees (4-7 blocks, roadmap 1.1 P3). Blocks grown at this mount are not
+    // in the superblock's count yet.
+    let grownFree = if (f.grown_from != 0) Ptr.toBorrow(f.mem.add((f.nmembers - 1) as usize)).nblocks - f.grown_from else 0;
+    if (f.free_blocks - grownFree != f.sb.free_blocks) {
         var buffer = [0u8; 160];
         var line = TextWriter.create(mut buffer[..]);
         line.text("cosmofs: free block count ");
@@ -1136,6 +1161,7 @@ unsafe fn mountFs(fst: *mut fs_type, bdev: *mut blkdev, flags: u32, mnt: *mut mo
     }
     let f = fsOf(fs);
     f.rdonly = (flags & MOUNT_RDONLY) != 0;
+    f.grow = (flags & MOUNT_GROW) != 0 && !f.rdonly;
     // A maintenance mount (cosmofs_check_dev) commits only when its release decides to: no writeback thread may commit
     // a replay or a refused repair before then (Codex on #434).
     let detached = (flags & MOUNT_DETACHED) != 0;
@@ -1314,6 +1340,24 @@ unsafe fn mountFs(fst: *mut fs_type, bdev: *mut blkdev, flags: u32, mnt: *mut mo
     line.decimal(f.sb.inode_count);
     line.text(" inodes");
     KernelLog.send(LogLevel.Info, line);
+    // A member that grew is written now, so the size the mount reported is on disk before anything is put there: the
+    // member table, the superblock's total and the new bitmap chunks, in one commit. Until it is durable the disk
+    // holds the old size, which the next mount grows again (design.md, "Growing a member").
+    if (f.grown_from != 0) {
+        mutex_lock(lockOf(fs));
+        let crc = cfs_commit_ex(fs, 0 as *mut bool);
+        mutex_unlock(lockOf(fs));
+        if (crc != 0) {
+            var gbuffer = [0u8; 128];
+            var gline = TextWriter.create(mut gbuffer[..]);
+            gline.text("cosmofs: ");
+            cText(mut gline, devName(bdev));
+            gline.text(": the commit of the grown size failed (");
+            gline.signed(crc as i64);
+            gline.text("); the disk keeps its old size");
+            KernelLog.send(LogLevel.Error, gline);
+        }
+    }
     // Live now, so the writeback thread may exist. If the replay left an open transaction, this is where its committer
     // starts.
     f.mount_done = true;
@@ -1368,13 +1412,19 @@ unsafe fn syncCounted(mnt: *mut mount, writeback: bool) -> i32 {
     return rc;
 }
 
-/// statfs: the pool's blocks; what a file may still take is what is free beyond the metadata reserve (cfs_alloc_run's
-/// rule for data). Read without the filesystem's lock: a moment's figures, as df wants.
+/// statfs: the pool's blocks -- its members' blocks, not the linear span, which rounds each member up to whole bitmap
+/// chunks of padding (roadmap 1.3 R2: df reported up to 127 MiB that does not exist); what a file may still take is
+/// what is free beyond the metadata reserve (cfs_alloc_run's rule for data). Read without the filesystem's lock: a
+/// moment's figures, as df wants. The member table is set when the pool loads and does not change while it is
+/// mounted.
 /// Safety: `mnt` is a mounted cosmofs; `out` writable.
 @export("cfs_core_statfs")
 unsafe fn statfs(mnt: *mut mount, out: *mut vfs_statfs) -> i32 {
     let f = fsOf(Ptr.toBorrow(mnt as *mount).fs_priv as *mut cfs);
-    let total = Ptr.toBorrow(borrow mut f.nblocks as *mut u64 as *AtomicU64).loadWith(LoadOrdering.Relaxed);
+    var total: u64 = 0;
+    for (v in 0u32..f.nmembers) {
+        total += Ptr.toBorrow(f.mem.add(v as usize)).nblocks;
+    }
     let free = Ptr.toBorrow(borrow mut f.free_blocks as *mut u64 as *AtomicU64).loadWith(LoadOrdering.Relaxed);
     let reserve = Ptr.toBorrow(borrow mut f.reserve as *mut u64 as *AtomicU64).loadWith(LoadOrdering.Relaxed);
     let o = Ptr.toBorrowMut(out);
