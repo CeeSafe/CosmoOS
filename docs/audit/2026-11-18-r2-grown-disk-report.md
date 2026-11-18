@@ -169,6 +169,13 @@ written), grow-again (nothing to do, nothing said; the root checked clean,
 `/big` read back), fallback. grow took 111.1 s on x86-64 and 166.4 s on
 AArch64.
 
+The review's fixes (`e63d8697`: `cosmo-grow`'s small-growth guard and
+rescan check, the grow stage's size check and stage order, the probe's
+fixed mode) change only the grow path, a user program and a harness; on
+that commit `make BUILD=release test-install` passed again on both, with
+every stage: 221.3 s and 319.3 s (grow 111.3 s and 167.2 s).
+`tools/statfs-span-probe.py`, both modes, PASS on both architectures.
+
 An earlier AArch64 `QEMU_SMP=4` run on the developer's Mac failed with
 `process-user` at 23090 ms against its 15 s bound under other sessions'
 load (load average 11.75 / 65.28 / 77.76) and passed alone in 209.3 s;
