@@ -143,7 +143,6 @@ extern "C" {
         rollback_failed: bool;
         failed: i32;
         rdonly: bool;
-        grow: bool;
         grown_from: u64;
         replay_freed: u32;
         replay_orphans: u32;
@@ -355,7 +354,6 @@ const EKEYREJECTED: i32 = 129;
 const VNODE_HASH: u32 = 64;
 const MOUNT_RDONLY: u32 = 1;
 const MOUNT_DETACHED: u32 = 8;
-const MOUNT_GROW: u32 = 16;
 const MOUNT_STATE_DEGRADED: u32 = 1;
 const SCHED_PRIO_DEFAULT: i32 = 32;
 const STAGE_SUPER: u32 = 1;
@@ -1161,7 +1159,6 @@ unsafe fn mountFs(fst: *mut fs_type, bdev: *mut blkdev, flags: u32, mnt: *mut mo
     }
     let f = fsOf(fs);
     f.rdonly = (flags & MOUNT_RDONLY) != 0;
-    f.grow = (flags & MOUNT_GROW) != 0 && !f.rdonly;
     // A maintenance mount (cosmofs_check_dev) commits only when its release decides to: no writeback thread may commit
     // a replay or a refused repair before then (Codex on #434).
     let detached = (flags & MOUNT_DETACHED) != 0;

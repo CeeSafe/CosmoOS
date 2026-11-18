@@ -2,7 +2,8 @@
 // "Named pipes"; invariant I9), in CeeSafe (roadmap 2.0 SA3). struct fifo and the per-open state are CeeSafe's, generated
 // into kernel/include/kernel/fifo_types.h, which only the generated fifo.c includes: to the rest of the kernel a fifo
 // stays opaque (fifo.h). The open's wait goes through wait_floor.c's killable wait, since a wait entry is C state no
-// CeeSafe local may hold; fifo_floor.c keeps the panic.
+// CeeSafe local may hold. The panic and the check of the constants below, once fifo_floor.c's, are here since roadmap
+// 1.3 R2 (the CeeSafe rule's offset for R2's C): panic is called as a variadic C function with its fixed message.
 //
 // The ring is made by the first open and freed by the last release, and its reader and writer counts are the live opens
 // of each side. Both facts change together, so they change under one lock order: the fifo's lock (the ring pointer)
@@ -13,7 +14,9 @@
 // It was first drafted by Nova's c2nova (docs/tooling.md §9.4), then written over by hand.
 
 @header(
+    "kernel/errno.h",
     "kernel/kmalloc.h",
+    "kernel/panic.h",
     "kernel/pipe.h",
     "kernel/spinlock.h",
     "kernel/vfs.h",
@@ -52,22 +55,26 @@ extern "C" {
     fn pipe_ring_write(p: *mut pipe, buf: *void, len: usize, nonblock: bool) -> i64;
     fn pipe_ring_ready_rd(p: *mut pipe) -> u32;
     fn pipe_ring_ready_wr(p: *mut pipe) -> u32;
+    // panic.h's panic, and the headers' constants, each checked against its C value.
+    fn panic(fmt: *CChar, ...); // _Noreturn in C
+    @cvalue("COSMO_O_RDONLY")
+    const COSMO_O_RDONLY: u32 = 0x0000;
+    @cvalue("COSMO_O_WRONLY")
+    const COSMO_O_WRONLY: u32 = 0x0001;
+    @cvalue("COSMO_O_ACCMODE")
+    const COSMO_O_ACCMODE: u32 = 0x0003;
+    @cvalue("COSMO_O_NONBLOCK")
+    const COSMO_O_NONBLOCK: u32 = 0x0800;
+    @cvalue("COSMO_IO_READABLE")
+    const COSMO_IO_READABLE: u32 = 1;
+    @cvalue("COSMO_IO_WRITABLE")
+    const COSMO_IO_WRITABLE: u32 = 2;
+    @cvalue("ENOMEM")
+    const ENOMEM: i32 = 12;
+    @cvalue("ENXIO")
+    const ENXIO: i32 = 6;
 }
 
-// fifo_floor.c's.
-extern "C" {
-    fn fifo_floor_panic_live();
-}
-
-// The headers' constants, which fifo_floor.c checks.
-const COSMO_O_RDONLY: u32 = 0x0000;
-const COSMO_O_WRONLY: u32 = 0x0001;
-const COSMO_O_ACCMODE: u32 = 0x0003;
-const COSMO_O_NONBLOCK: u32 = 0x0800;
-const COSMO_IO_READABLE: u32 = 1;
-const COSMO_IO_WRITABLE: u32 = 2;
-const ENOMEM: i32 = 12;
-const ENXIO: i32 = 6;
 
 const FIFO_RD: u32 = 1;
 const FIFO_WR: u32 = 2;
@@ -138,7 +145,7 @@ unsafe fn alloc() -> *mut fifo {
 @export("fifo_free")
 unsafe fn free(fifo: *mut fifo) {
     if (!Ptr.toBorrow(fifo as *fifo).ring.isNull()) {
-        fifo_floor_panic_live(); // an open outlived the node
+        panic("fifo: freed with its ring live (an open outlived the node)\0".ptr as *CChar);
     }
     kfree(fifo as *mut void);
 }

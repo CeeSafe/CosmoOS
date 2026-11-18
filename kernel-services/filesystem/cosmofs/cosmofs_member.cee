@@ -20,6 +20,7 @@ extern "C" {
     }
     struct mount {
         bdev: *mut blkdev;
+        flags: u32;
     }
     struct pool_copy {
         dev: *mut blkdev;
@@ -86,7 +87,6 @@ extern "C" {
         nmembers: u32;
         bufs: list_node;
         rdonly: bool;
-        grow: bool;
         grown_from: u64;
         degraded: u64;
         repairs: u64;
@@ -208,6 +208,8 @@ const CFS_DVA_VDEV_SHIFT: u64 = 56;
 const CFS_DVA_BLK_MASK: u64 = 0x00FFFFFFFFFFFFFF;
 const CFS_DVA_NONE: u64 = 0xFFFFFFFFFFFFFFFF;
 const CFS_BITS_PER_BITMAP: u64 = 32512;
+/// vfs.h's MOUNT_GROW (roadmap 1.3 R2).
+const MOUNT_GROW: u32 = 16;
 const CFS_FORMAT_VERSION: u32 = 11;
 const CFS_KIND_MEMBERS: u32 = 11;
 const CFS_KIND_COPYSTATE: u32 = 17;
@@ -1437,8 +1439,10 @@ unsafe fn membersLoad(fs: *mut cfs) -> i32 {
             rc = -EIO;
             break;
         }
-        // Growing is for a pool of one member: a later member's label records its size too, and is not rewritten.
-        if (fsOf(fs).grow && fsOf(fs).nmembers == 1) {
+        // MOUNT_GROW, a writable mount's (the VFS set the mount's flags before this mount began). Growing is for a
+        // pool of one member: a later member's label records its size too, and is not rewritten.
+        let grow = (Ptr.toBorrow(fsOf(fs).mnt as *mount).flags & MOUNT_GROW) != 0 && !fsOf(fs).rdonly;
+        if (grow && fsOf(fs).nmembers == 1) {
             growLast(fs, v, has);
         }
         // And the member is the table's size, however big its device: the copy record's regions are sized from it,

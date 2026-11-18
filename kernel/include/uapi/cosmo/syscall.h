@@ -694,10 +694,7 @@ struct cosmo_dirent {
  * refuses it with -EINVAL. */
 #define COSMO_MOUNT_RDONLY  (1u << 0)
 #define COSMO_MOUNT_SCRATCH (1u << 1)
-/* GROW (roadmap 1.3 R2): a cosmofs pool's last member grows to the size of
- * its device, committed by the mount; any other filesystem refuses it with
- * -EINVAL, and a pool that cannot grow mounts as it is, saying why. */
-#define COSMO_MOUNT_GROW    (1u << 2)
+#define COSMO_MOUNT_GROW    (1u << 2)   /* a writable cosmofs mount's: the pool grows to its device (R2) */
 
 /* umount() flags. FORCE skips the final commit and drops the open
  * transaction (recovery when a commit keeps failing). */

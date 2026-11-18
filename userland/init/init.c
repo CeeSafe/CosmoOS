@@ -118,8 +118,7 @@ static void fs_selftest(void)
     /* COSMO_MOUNT_SCRATCH: a ramfs root of 01777, as init mounts /tmp on
      * a disk root; ramfs's alone. */
     CHECK(cosmo_mount("none", "/tmp/flagm", "procfs", COSMO_MOUNT_SCRATCH) == -COSMO_EINVAL);
-    /* COSMO_MOUNT_GROW (roadmap 1.3 R2): a writable cosmofs mount's alone. */
-    CHECK(cosmo_mount("none", "/tmp/flagm", "ramfs", COSMO_MOUNT_GROW) == -COSMO_EINVAL);
+    CHECK(cosmo_mount("none", "/tmp/flagm", "ramfs", COSMO_MOUNT_GROW) == -COSMO_EINVAL);   /* cosmofs's alone */
     CHECK(cosmo_mount("none", "/tmp/flagm", "ramfs", COSMO_MOUNT_SCRATCH) == 0);
     CHECK(cosmo_stat("/tmp/flagm", &st) == 0 && st.mode == 01777 && st.uid == 0);
     CHECK(cosmo_umount2("/tmp/flagm", 0) == 0);
@@ -6458,10 +6457,7 @@ static bool switch_to_disk_root(void)
         printf("init: /sysroot: %s; staying on the live root\n", strerror(errno));
         return false;
     }
-    /* COSMO_MOUNT_GROW (roadmap 1.3 R2): a root whose partition is larger
-     * than its pool -- an image grown by cosmo-grow above -- takes the rest;
-     * one that fills it mounts as it always did. */
-    if (mount(dev, "/sysroot", "cosmofs", COSMO_MOUNT_GROW) < 0) {
+    if (mount(dev, "/sysroot", "cosmofs", COSMO_MOUNT_GROW) < 0) {   /* the pool takes a grown partition (R2) */
         printf("init: cannot mount %s (root=%s): %s; staying on the live root\n", dev, spec, strerror(errno));
         rmdir("/sysroot");
         return false;
