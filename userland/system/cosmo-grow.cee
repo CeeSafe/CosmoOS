@@ -1,0 +1,733 @@
+// cosmo-grow.cee - fit a copied disk image to the disk it is on (roadmap 1.3 R2; docs/userland/design.md, "First
+// boot without a console"). A whole user program in CeeSafe: userland.mk's USER_CEE_PROGRAMS.
+//
+//   cosmo-grow --table DEVICE   DEVICE a partition (init passes the root) or a whole disk
+//
+// An image copied to a larger disk keeps its GPT where it was: the kernel accepts it, with the backup header short
+// of the last sector (gpt.h's backup_lba). --table moves the table to the disk's real size: the usable range ends
+// where a table for this disk ends, the backup entries and header move to the last sectors, and the partition
+// DEVICE names, when it is the CosmoOS root and the last partition on the disk, grows to the new end of the usable
+// range. Then RESCAN.
+//
+// Only a table exactly as gpt_build writes it (cosmo-install's, and so the cloud image's) is rewritten: the table is
+// rebuilt for its old size and compared byte for byte with the disk first, so nothing it holds -- an attribute, a
+// name, a third-party layout -- is lost by the rebuild. The new backup is written first and the primary last: until
+// the primary lands the old table, which the kernel still accepts, is the disk's.
+//
+// Quiet when there is nothing to do, which is every boot but the first on a larger disk. Exit 0 done or nothing to
+// do, 1 failed (the old table still the disk's, or the new one whole), 2 usage, 3 refused (a table gpt_build did not
+// write). The disk is reached through /dev/blkctl (uapi/cosmo/blkctl.h); the table through the kernel's own parser
+// and writer (kernel/block/gpt.cee, built for user mode by install_gpt.c).
+
+@header("kernel/gpt.h", "uapi/cosmo/blkctl.h", "fcntl.h", "unistd.h", "string.h")
+extern "C" {
+    struct gpt_part {
+        index: u32;
+        first_lba: u64;
+        last_lba: u64;
+        @cname("type") kind: [u8; 16];
+        uuid: [u8; 16];
+        attrs: u64;
+    }
+    struct gpt_table {
+        disk_guid: [u8; 16];
+        first_usable: u64;
+        last_usable: u64;
+        nr_entries: u32;
+        entry_size: u32;
+        nparts: u32;
+        parts: [gpt_part; 32];
+        backup_lba: u64;
+    }
+    struct gpt_build_part {
+        index: u32;
+        first_lba: u64;
+        last_lba: u64;
+        @cname("type") kind: [u8; 16];
+        uuid: [u8; 16];
+    }
+    struct cosmo_blkctl {
+        version: u16;
+        op: u16;
+        count: u32;
+        sector: u64;
+        name: [u8; 16];
+        fstype: [u8; 16];
+    }
+    struct cosmo_blkctl_dev {
+        name: [u8; 16];
+        disk: [u8; 16];
+        sectors: u64;
+        sector_size: u32;
+        flags: u32;
+        start: u64;
+        index: u32;
+        reserved: u32;
+        uuid: [u8; 16];
+        @cname("type") kind: [u8; 16];
+    }
+    struct cosmo_blkctl_list {
+        version: u32;
+        count: u32;
+    }
+    struct cosmo_blkctl_rescan {
+        partitions: u32;
+        reserved: u32;
+    }
+
+    fn gpt_parse(
+        ss: u32, n: u64, read: extern "C" fn(*mut void, u64, u32, *mut void) -> i32, ctx: *mut void,
+        scratch: *mut void, out: *mut gpt_table, why: *mut *CChar,
+    ) -> u32;
+    fn gpt_build(
+        ss: u32, n: u64, guid: *u8, parts: *gpt_build_part, nparts: u32, head: *mut u8, tail: *mut u8,
+    ) -> bool;
+    fn gpt_build_first_usable(ss: u32) -> u64;
+    fn gpt_build_last_usable(ss: u32, n: u64) -> u64;
+    static gpt_type_cosmo_root: [u8; 16];
+
+    @effects()
+    fn strlen(s: *CChar) -> usize;
+    @effects()
+    fn memcmp(a: *void, b: *void, n: usize) -> i32;
+    fn open(path: *CChar, flags: i32, ...) -> i32;
+    @cvalue("O_RDWR")
+    const O_RDWR: i32 = 2;
+    fn read(fd: i32, buf: *mut void, n: usize) -> isize;
+    fn write(fd: i32, buf: *void, n: usize) -> isize;
+
+    @cvalue("COSMO_BLKCTL_VERSION")
+    const BLKCTL_VERSION: u16 = 1;
+    @cvalue("COSMO_BLKCTL_LIST")
+    const OP_LIST: u16 = 1;
+    @cvalue("COSMO_BLKCTL_READ")
+    const OP_READ: u16 = 2;
+    @cvalue("COSMO_BLKCTL_WRITE")
+    const OP_WRITE: u16 = 3;
+    @cvalue("COSMO_BLKCTL_FLUSH")
+    const OP_FLUSH: u16 = 4;
+    @cvalue("COSMO_BLKCTL_RESCAN")
+    const OP_RESCAN: u16 = 5;
+    @cvalue("COSMO_BLKCTL_IO_MAX")
+    const IO_MAX: usize = 32768;
+    @cvalue("COSMO_BLKCTL_PART")
+    const FLAG_PART: u32 = 1;
+    @cvalue("GPT_OK")
+    const GPT_OK: u32 = 0;
+    @cvalue("GPT_NONE")
+    const GPT_NONE: u32 = 1;
+    @cvalue("GPT_IO")
+    const GPT_IO: u32 = 3;
+    @cvalue("GPT_SCRATCH_BYTES")
+    const SCRATCH_BYTES: usize = 36864;
+    @cvalue("GPT_MAX_PARTS")
+    const MAX_PARTS: usize = 32;
+    @cvalue("GPT_BUILD_ENTRIES")
+    const BUILD_ENTRIES: u32 = 128;
+    @cvalue("GPT_BUILD_ENTRY_SIZE")
+    const BUILD_ENTRY_SIZE: u32 = 128;
+}
+
+/// gpt.h's GPT_BUILD_HEAD_SECTORS and GPT_BUILD_TAIL_SECTORS: the protective MBR, a header and 16 KiB of entries;
+/// the entries again and a header.
+fn headSectors(ss: u32) -> u32 => 2 + 16384 / ss;
+fn tailSectors(ss: u32) -> u32 => 16384 / ss + 1;
+/// The larger of the two head regions (512-byte sectors: 34; 4096-byte: 6 sectors, 24 KiB).
+const REGION_MAX: usize = 24576;
+/// The largest result a /dev/blkctl read returns here: a LIST of 128 devices, or IO_MAX bytes of sectors.
+const RESULT_MAX: usize = 65536;
+const DEVS_MAX: usize = 128;
+
+/// The program's buffers: the channel's command and result, the device list, the regions compared and written.
+struct State {
+    io: [u8; 32832]; // a command (struct cosmo_blkctl, 48 bytes) and IO_MAX bytes of data, rounded up
+    res: [u8; 65536];
+    devs: [cosmo_blkctl_dev; 128];
+    ndevs: usize;
+    head: [u8; 24576];
+    tail: [u8; 24576];
+    disk: [u8; 24576];
+    scratch: [u8; 36864];
+    table: gpt_table;
+    check: gpt_table;
+    parts: [gpt_build_part; 32];
+}
+
+/// /dev/blkctl, opened by the first command; apart from the state, which is all zeros and so takes no room in the
+/// program file.
+static mut FD: i32 = -1;
+
+static mut STATE: State = State {
+    io: [0; 32832],
+    res: [0; 65536],
+    devs: [cosmo_blkctl_dev {
+        name: [0; 16],
+        disk: [0; 16],
+        sectors: 0,
+        sector_size: 0,
+        flags: 0,
+        start: 0,
+        index: 0,
+        reserved: 0,
+        uuid: [0; 16],
+        kind: [0; 16],
+    }; 128],
+    ndevs: 0,
+    head: [0; 24576],
+    tail: [0; 24576],
+    disk: [0; 24576],
+    scratch: [0; 36864],
+    table: gpt_table {
+        disk_guid: [0; 16],
+        first_usable: 0,
+        last_usable: 0,
+        nr_entries: 0,
+        entry_size: 0,
+        nparts: 0,
+        parts: [gpt_part { index: 0, first_lba: 0, last_lba: 0, kind: [0; 16], uuid: [0; 16], attrs: 0 }; 32],
+        backup_lba: 0,
+    },
+    check: gpt_table {
+        disk_guid: [0; 16],
+        first_usable: 0,
+        last_usable: 0,
+        nr_entries: 0,
+        entry_size: 0,
+        nparts: 0,
+        parts: [gpt_part { index: 0, first_lba: 0, last_lba: 0, kind: [0; 16], uuid: [0; 16], attrs: 0 }; 32],
+        backup_lba: 0,
+    },
+    parts: [gpt_build_part { index: 0, first_lba: 0, last_lba: 0, kind: [0; 16], uuid: [0; 16] }; 32],
+};
+
+/// Safety: the program is one thread; nothing else holds the state.
+unsafe fn st() -> borrow mut(static) State => Ptr.toBorrowMut(borrow mut STATE as *mut State);
+
+// ---- Output ----
+
+/// Safety: as st.
+unsafe fn out(fd: i32, line: borrow TextWriter) {
+    let w = line.written();
+    let _ = write(fd, w.ptr as *void, w.length);
+}
+
+/// A device name as text: up to its NUL.
+fn nameOf(n: borrow [u8; 16]) -> Slice<u8> {
+    var len: usize = 0;
+    while (len < 16 && n[len] != 0) {
+        len += 1;
+    }
+    return n[..len];
+}
+
+// ---- The channel ----
+
+/// One command on /dev/blkctl; its result into the state's `res`. The result's length, or -errno as a negative.
+/// Safety: as st; `data` holds `len` bytes, at most IO_MAX.
+unsafe fn ctl(op: u16, name: Slice<u8>, sector: u64, count: u32, data: Slice<u8>) -> isize {
+    let s = st();
+    if (FD < 0) {
+        FD = open("/dev/blkctl\0".ptr as *CChar, O_RDWR);
+        if (FD < 0) {
+            return -1;
+        }
+    }
+    let size = layoutOf<cosmo_blkctl>().size;
+    s.io[..size + data.length].fill(0);
+    let cmd = Ptr.toBorrowMut(borrow mut s.io as *mut [u8; 32832] as *mut cosmo_blkctl);
+    cmd.version = BLKCTL_VERSION;
+    cmd.op = op;
+    cmd.sector = sector;
+    cmd.count = count;
+    let n = if (name.length < 15) name.length else 15;
+    cmd.name[..n].copyFrom(name[..n]);
+    s.io[size..size + data.length].copyFrom(data);
+    if (write(FD, borrow s.io as *[u8; 32832] as *void, size + data.length) < 0) {
+        return -1;
+    }
+    return read(FD, borrow mut s.res as *mut [u8; 65536] as *mut void, RESULT_MAX);
+}
+
+/// LIST into the state's devices. False when the channel failed.
+/// Safety: as st.
+unsafe fn listDevices() -> bool {
+    let empty = [0u8; 1];
+    let n = ctl(OP_LIST, empty[..0], 0, 0, empty[..0]);
+    let hsize = layoutOf<cosmo_blkctl_list>().size;
+    if (n < 0 || truncate<usize>(n as i64) < hsize) {
+        return false;
+    }
+    let s = st();
+    let hdr = Ptr.toBorrow(borrow s.res as *[u8; 65536] as *cosmo_blkctl_list);
+    let dsize = layoutOf<cosmo_blkctl_dev>().size;
+    var count = hdr.count as usize;
+    if (count > DEVS_MAX) {
+        count = DEVS_MAX;
+    }
+    let got = truncate<usize>(n as i64);
+    if (hsize + count * dsize > got) {
+        count = (got - hsize) / dsize;
+    }
+    for (i in 0..count) {
+        let rec = (borrow s.res as *[u8; 65536] as *u8).add(hsize + i * dsize) as *cosmo_blkctl_dev;
+        let r = Ptr.toBorrow(rec);
+        let d = borrow mut s.devs[i];
+        d.name = r.name;
+        d.disk = r.disk;
+        d.sectors = r.sectors;
+        d.sector_size = r.sector_size;
+        d.flags = r.flags;
+        d.index = r.index;
+    }
+    s.ndevs = count;
+    return true;
+}
+
+/// The listed device named `name`, by index.
+/// Safety: as st.
+unsafe fn find(name: Slice<u8>) -> usize? {
+    let s = st();
+    for (i in 0..s.ndevs) {
+        let n = nameOf(borrow s.devs[i].name);
+        if (n.length == name.length && memcmp(n.ptr as *void, name.ptr as *void, n.length) == 0) {
+            return i;
+        }
+    }
+    return null;
+}
+
+/// How many listed partitions `disk` has.
+/// Safety: as st.
+unsafe fn partsOf(disk: Slice<u8>) -> u32 {
+    let s = st();
+    var count: u32 = 0;
+    for (i in 0..s.ndevs) {
+        if ((s.devs[i].flags & FLAG_PART) != 0 && nameOf(borrow s.devs[i].disk) == disk) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+/// `count` sectors of device `dev` from `lba` into `into`, in reads of at most IO_MAX.
+/// Safety: as st.
+unsafe fn readSectors(dev: usize, lba: u64, count: u64, into: SliceMut<u8>) -> bool {
+    let s = st();
+    let ss = s.devs[dev].sector_size as usize;
+    let name = nameOf(borrow s.devs[dev].name);
+    var nameCopy = [0u8; 16];
+    nameCopy[..name.length].copyFrom(name);
+    var at: u64 = 0;
+    while (at < count) {
+        let left = count - at;
+        let per = (IO_MAX / ss) as u64;
+        let n = if (left < per) left else per;
+        let bytes = truncate<usize>(n) * ss;
+        let empty = [0u8; 1];
+        let got = ctl(OP_READ, nameCopy[..name.length], lba + at, truncate<u32>(n), empty[..0]);
+        if (got < 0 || truncate<usize>(got as i64) != bytes) {
+            return false;
+        }
+        let off = truncate<usize>(at) * ss;
+        let rs = st();
+        into[off..off + bytes].copyFrom(rs.res[..bytes]);
+        at += n;
+    }
+    return true;
+}
+
+/// `count` sectors from `from` to device `dev` at `lba`, in writes of at most IO_MAX.
+/// Safety: as st.
+unsafe fn writeSectors(dev: usize, lba: u64, count: u64, from: Slice<u8>) -> bool {
+    let s = st();
+    let ss = s.devs[dev].sector_size as usize;
+    let name = nameOf(borrow s.devs[dev].name);
+    var nameCopy = [0u8; 16];
+    nameCopy[..name.length].copyFrom(name);
+    var at: u64 = 0;
+    while (at < count) {
+        let left = count - at;
+        let per = (IO_MAX / ss) as u64;
+        let n = if (left < per) left else per;
+        let bytes = truncate<usize>(n) * ss;
+        let off = truncate<usize>(at) * ss;
+        if (ctl(OP_WRITE, nameCopy[..name.length], lba + at, truncate<u32>(n), from[off..off + bytes]) < 0) {
+            return false;
+        }
+        at += n;
+    }
+    return true;
+}
+
+/// Safety: as st.
+unsafe fn flush(dev: usize) -> bool {
+    var nameCopy = [0u8; 16];
+    let name = nameOf(borrow st().devs[dev].name);
+    nameCopy[..name.length].copyFrom(name);
+    let empty = [0u8; 1];
+    return ctl(OP_FLUSH, nameCopy[..name.length], 0, 0, empty[..0]) >= 0;
+}
+
+/// RESCAN `name`; the partitions it registered, or null when refused (-EBUSY among them: a partition in use).
+/// Safety: as st.
+unsafe fn rescan(name: Slice<u8>) -> u32? {
+    let empty = [0u8; 1];
+    let n = ctl(OP_RESCAN, name, 0, 0, empty[..0]);
+    if (n < 0 || truncate<usize>(n as i64) != layoutOf<cosmo_blkctl_rescan>().size) {
+        return null;
+    }
+    return Ptr.toBorrow(borrow st().res as *[u8; 65536] as *cosmo_blkctl_rescan).partitions;
+}
+
+// ---- The table ----
+
+/// gpt_parse's reader over /dev/blkctl: the context is the device's index, plus one.
+/// Safety: gpt_parse's contract: `buf` holds `count` sectors.
+@callback
+unsafe fn diskRead(ctx: *mut void, lba: u64, count: u32, buf: *mut void) -> i32 {
+    let dev = (ctx as usize) - 1;
+    let bytes = count as usize * st().devs[dev].sector_size as usize;
+    return if (readSectors(dev, lba, count as u64, SliceMut.fromRaw(buf as *mut u8, bytes))) 0 else -1;
+}
+
+/// The size of the disk the in-memory table is being checked as; gpt_parse's reader over the state's head and tail.
+static mut MEM_SECTORS: u64 = 0;
+static mut MEM_SS: u32 = 512;
+
+/// Safety: gpt_parse's contract.
+@callback
+unsafe fn memRead(ctx: *mut void, lba: u64, count: u32, buf: *mut void) -> i32 {
+    let ss = MEM_SS as usize;
+    let n = MEM_SECTORS;
+    let head = headSectors(MEM_SS) as u64;
+    let tail0 = n - tailSectors(MEM_SS) as u64;
+    let s = st();
+    let to = SliceMut.fromRaw(buf as *mut u8, count as usize * ss);
+    for (i in 0..count as u64) {
+        let sec = lba + i;
+        let o = truncate<usize>(i) * ss;
+        if (sec < head) {
+            let from = truncate<usize>(sec) * ss;
+            to[o..o + ss].copyFrom(s.head[from..from + ss]);
+        } else if (sec >= tail0 && sec < n) {
+            let from = truncate<usize>(sec - tail0) * ss;
+            to[o..o + ss].copyFrom(s.tail[from..from + ss]);
+        } else {
+            to[o..o + ss].fill(0);
+        }
+    }
+    return 0;
+}
+
+/// The table's partitions as gpt_build takes them.
+fn buildParts(t: borrow gpt_table, parts: borrow mut [gpt_build_part; 32]) -> u32 {
+    for (i in 0..t.nparts as usize) {
+        let p = borrow t.parts[i];
+        let q = borrow mut parts[i];
+        q.index = p.index;
+        q.first_lba = p.first_lba;
+        q.last_lba = p.last_lba;
+        q.kind = p.kind;
+        q.uuid = p.uuid;
+    }
+    return t.nparts;
+}
+
+/// Whether the disk's table is gpt_build's for a disk of `n0` sectors: rebuilt, and equal byte for byte.
+/// Safety: as st.
+unsafe fn isBuilt(dev: usize, n0: u64) -> bool {
+    let s = st();
+    let ss = s.devs[dev].sector_size;
+    let t = borrow s.table;
+    if (t.nr_entries != BUILD_ENTRIES || t.entry_size != BUILD_ENTRY_SIZE ||
+        t.first_usable != gpt_build_first_usable(ss) || t.last_usable != gpt_build_last_usable(ss, n0)) {
+        return false;
+    }
+    for (i in 0..t.nparts as usize) {
+        if (t.parts[i].attrs != 0) {
+            return false;
+        }
+    }
+    let np = buildParts(t, mut s.parts);
+    if (!gpt_build(
+        ss, n0, borrow t.disk_guid as *[u8; 16] as *u8, borrow s.parts as *[gpt_build_part; 32] as *gpt_build_part, np,
+        borrow mut s.head as *mut [u8; 24576] as *mut u8, borrow mut s.tail as *mut [u8; 24576] as *mut u8,
+    )) {
+        return false;
+    }
+    let hb = headSectors(ss) as usize * ss as usize;
+    let tb = tailSectors(ss) as usize * ss as usize;
+    if (!readSectors(dev, 0, headSectors(ss) as u64, mut s.disk[..hb]) || s.disk[..hb] != s.head[..hb]) {
+        return false;
+    }
+    if (!readSectors(dev, n0 - tailSectors(ss) as u64, tailSectors(ss) as u64, mut s.disk[..tb]) ||
+        s.disk[..tb] != s.tail[..tb]) {
+        return false;
+    }
+    return true;
+}
+
+/// --table: see the file's comment.
+/// Safety: as st; `arg` is a terminated string.
+unsafe fn growTable(arg: *CChar) -> i32 {
+    var given = Slice.fromRaw(arg as *u8, strlen(arg));
+    if (given.length > 5 && given[..5] == "/dev/".bytes()) {
+        given = given[5..];
+    }
+    var buffer = [0u8; 256];
+    if (!listDevices()) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: cannot list the block devices\n");
+        out(2, borrow line);
+        return 1;
+    }
+    let s = st();
+    var dev: usize = 0;
+    match (find(given)) {
+        Some(i) => { dev = i; }
+        null => {
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-grow: ");
+            line.bytes(given);
+            line.text(": no such device\n");
+            out(2, borrow line);
+            return 2;
+        }
+    }
+    var disk = dev;
+    var growIndex: u32 = 0; // the partition to grow; 0 for none
+    if ((s.devs[dev].flags & FLAG_PART) != 0) {
+        var dn = [0u8; 16];
+        let d = nameOf(borrow s.devs[dev].disk);
+        dn[..d.length].copyFrom(d);
+        match (find(dn[..d.length])) {
+            Some(i) => { disk = i; }
+            null => {
+                var line = TextWriter.create(mut buffer[..]);
+                line.text("cosmo-grow: ");
+                line.bytes(given);
+                line.text(": its disk ");
+                line.bytes(d);
+                line.text(" is not listed\n");
+                out(2, borrow line);
+                return 1;
+            }
+        }
+        growIndex = s.devs[dev].index;
+    }
+    var dname = [0u8; 16];
+    let dl = nameOf(borrow s.devs[disk].name);
+    dname[..dl.length].copyFrom(dl);
+    let dnm = dname[..dl.length];
+    let ss = s.devs[disk].sector_size;
+    let n = s.devs[disk].sectors;
+    var why = "\0".ptr as *CChar;
+    let r = gpt_parse(
+        ss, n, diskRead, (disk + 1) as *mut void, borrow mut s.scratch as *mut [u8; 36864] as *mut void,
+        borrow mut s.table as *mut gpt_table, borrow mut why as *mut *CChar,
+    );
+    if (r == GPT_NONE) {
+        return 0; // no table: nothing of ours to fit
+    }
+    if (r != GPT_OK) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": the partition table cannot be read: ");
+        if (r == GPT_IO) {
+            line.text("an I/O error");
+        } else {
+            line.bytes(Slice.fromRaw(why as *u8, strlen(why)));
+        }
+        line.text("\n");
+        out(2, borrow line);
+        return 1;
+    }
+    if (s.table.backup_lba == n - 1) {
+        return 0; // the table fits the disk: every boot but the first on a larger one
+    }
+    let n0 = s.table.backup_lba + 1;
+    if (n - n0 < tailSectors(ss) as u64) {
+        // The new backup would overlap the old one: writing it would damage the table the disk still has until
+        // the primary is written. So few sectors are not worth a partition; the kernel accepts the table as it is.
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": the disk grew by ");
+        line.decimal(n - n0);
+        line.text(" sectors, fewer than the ");
+        line.decimal(tailSectors(ss) as u64);
+        line.text(" of the table's backup; it is left as it is\n");
+        out(1, borrow line);
+        return 0;
+    }
+    if (!isBuilt(disk, n0)) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": the disk grew from ");
+        line.decimal(n0);
+        line.text(" to ");
+        line.decimal(n);
+        line.text(" sectors, but its partition table is not one cosmo-install wrote; it is left as it is\n");
+        out(2, borrow line);
+        return 3;
+    }
+
+    let np = buildParts(borrow s.table, mut s.parts);
+    let parts = borrow mut s.parts;
+    var lastEnd: u64 = 0;
+    for (i in 0..np as usize) {
+        if (parts[i].last_lba > lastEnd) {
+            lastEnd = parts[i].last_lba;
+        }
+    }
+    var grown: usize? = null;
+    var oldLast: u64 = 0;
+    for (i in 0..np as usize) {
+        if (growIndex == 0 || parts[i].index != growIndex) {
+            continue;
+        }
+        let root = gpt_type_cosmo_root;
+        if (parts[i].kind != root) {
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-grow: ");
+            line.bytes(given);
+            line.text(" is not a CosmoOS root partition; it keeps its size\n");
+            out(1, borrow line);
+        } else if (parts[i].last_lba != lastEnd) {
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("cosmo-grow: ");
+            line.bytes(given);
+            line.text(" is not the last partition on ");
+            line.bytes(dnm);
+            line.text("; it keeps its size\n");
+            out(1, borrow line);
+        } else {
+            grown = i;
+            oldLast = parts[i].last_lba;
+            parts[i].last_lba = gpt_build_last_usable(ss, n);
+        }
+    }
+    if (!gpt_build(
+        ss, n, borrow s.table.disk_guid as *[u8; 16] as *u8,
+        parts as *[gpt_build_part; 32] as *gpt_build_part, np, borrow mut s.head as *mut [u8; 24576] as *mut u8,
+        borrow mut s.tail as *mut [u8; 24576] as *mut u8,
+    )) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": cannot lay out a table for ");
+        line.decimal(n);
+        line.text(" sectors\n");
+        out(2, borrow line);
+        return 1;
+    }
+    MEM_SECTORS = n;
+    MEM_SS = ss;
+    if (gpt_parse(
+        ss, n, memRead, 0 as *mut void, borrow mut s.scratch as *mut [u8; 36864] as *mut void,
+        borrow mut s.check as *mut gpt_table, borrow mut why as *mut *CChar,
+    ) != GPT_OK || s.check.nparts != np ||
+        s.check.backup_lba != n - 1) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": the table built does not parse: ");
+        line.bytes(Slice.fromRaw(why as *u8, strlen(why)));
+        line.text("\n");
+        out(2, borrow line);
+        return 1;
+    }
+
+    // The backup first: until the primary is written the old table, whose backup is untouched, is the disk's.
+    let hb = headSectors(ss) as usize * ss as usize;
+    let tb = tailSectors(ss) as usize * ss as usize;
+    if (!writeSectors(disk, n - tailSectors(ss) as u64, tailSectors(ss) as u64, s.tail[..tb]) || !flush(disk) ||
+        !writeSectors(disk, 0, headSectors(ss) as u64, s.head[..hb]) || !flush(disk)) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": writing the partition table failed\n");
+        out(2, borrow line);
+        return 1;
+    }
+    // The old backup header is now inside a partition or free space: cleared, so nothing finds a stale table.
+    s.disk[..ss as usize].fill(0);
+    if (!writeSectors(disk, n0 - 1, 1, s.disk[..ss as usize]) || !flush(disk)) {
+        var line = TextWriter.create(mut buffer[..]);
+        line.text("cosmo-grow: ");
+        line.bytes(dnm);
+        line.text(": the old backup header at sector ");
+        line.decimal(n0 - 1);
+        line.text(" was not cleared\n");
+        out(1, borrow line);
+    }
+    var line = TextWriter.create(mut buffer[..]);
+    line.text("cosmo-grow: ");
+    line.bytes(dnm);
+    line.text(": the partition table now covers ");
+    line.decimal(n);
+    line.text(" sectors (it covered ");
+    line.decimal(n0);
+    line.text(")\n");
+    out(1, borrow line);
+    match (grown) {
+        Some(g) => {
+            var gl = TextWriter.create(mut buffer[..]);
+            gl.text("cosmo-grow: ");
+            gl.bytes(given);
+            gl.text(": ");
+            gl.decimal(parts[g].last_lba - parts[g].first_lba + 1);
+            gl.text(" sectors, was ");
+            gl.decimal(oldLast - parts[g].first_lba + 1);
+            gl.text("\n");
+            out(1, borrow gl);
+        }
+        null => {}
+    }
+    var parts2: u32 = 0;
+    match (rescan(dnm)) {
+        Some(k) => { parts2 = k; }
+        null => {
+            // Refused. A partition in use (-EBUSY) leaves every partition registered, and the new sizes apply from
+            // the next boot; a scan that failed after removing them leaves fewer. What is listed now says which
+            // (the channel's errno is libc's, a name CeeSafe does not import).
+            var bl = TextWriter.create(mut buffer[..]);
+            bl.text("cosmo-grow: ");
+            bl.bytes(dnm);
+            if (listDevices() && partsOf(dnm) == np) {
+                bl.text(": the partitions were not rescanned; the new sizes apply from the next boot\n");
+                out(1, borrow bl);
+                return 0;
+            }
+            bl.text(": rescanning the partitions failed, and they are no longer all registered\n");
+            out(2, borrow bl);
+            return 1;
+        }
+    }
+    if (parts2 != np) {
+        var bl = TextWriter.create(mut buffer[..]);
+        bl.text("cosmo-grow: ");
+        bl.bytes(dnm);
+        bl.text(": rescanning the partitions: a different number of partitions appeared\n");
+        out(2, borrow bl);
+        return 1;
+    }
+    return 0;
+}
+
+/// Safety: `argv` holds `argc` terminated strings.
+@export("cosmo_program_main") // crt0 calls main: the link names this main (userland.mk, USER_CEE_PROGRAMS)
+unsafe fn run(argc: i32, argv: *mut *mut CChar) -> i32 {
+    if (argc == 3) {
+        let flag = argv.add(1).read() as *CChar;
+        let f = Slice.fromRaw(flag as *u8, strlen(flag));
+        if (f == "--table".bytes()) {
+            return growTable(argv.add(2).read() as *CChar);
+        }
+    }
+    let usage = "usage: cosmo-grow --table DEVICE\n";
+    let _ = write(2, usage.ptr as *void, usage.length);
+    return 2;
+}

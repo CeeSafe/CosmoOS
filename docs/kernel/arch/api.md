@@ -201,7 +201,7 @@ pointer.
 - Concurrency: a spinlock serialises the selector/data port sequence;
   any context, but every call walks the directory, so it is for boot
   configuration. Generic code uses `fwcfg_get_string` from
-  `kernel/fwcfg.h` (`kernel/core/fwcfg.c`), which prefixes
+  `kernel/fwcfg.h` (`kernel/core/fwcfg.cee`, CeeSafe), which prefixes
   `opt/cosmo/` and NUL-terminates. See
   `docs/kernel-services/network/api.md`.
 

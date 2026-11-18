@@ -274,6 +274,31 @@ driver starts from `drivers/ceesafe-template/template.cee`, which every
 `make cee-check` compiles. `make test-modcycle
 MODCYCLE_ENTRY=modules/<name>.ko` cycles a driver 1,000 times.
 
+## User programs
+
+New user programs are CeeSafe too: the rule's gate (`scripts/cee-share.py`)
+counts `userland/`. A whole program is `userland/<dir>/<name>.cee` with a
+line in `PORTS`; `userland/userland.mk` lists it in `USER_CEE_PROGRAMS`.
+The first are `hostname` and `cosmo-grow` (roadmap 1.3 R2).
+
+- **No `main` in freestanding CeeSafe** (N0293): the program exports
+  `cosmo_program_main(argc, argv)`, and its link names that `main`
+  (`--defsym`), which crt0 calls.
+- **The runtime**: `userland.mk` compiles CeeSafe's runtime for user mode
+  (`$(OUT)/userland/cee/ceesafe_rt_core.o`, apart from the kernel's object
+  of the same source) and links the programs' panic hook,
+  `userland/lib/ceesafe_panic.c` (FLOOR, as the kernel's is). A C program
+  that links generated C (`install_gpt.c`'s GPT code) is in
+  `USER_CEE_LINKED` and links the same two.
+- **libc**: declare what you call in `extern "C"` under `@header`. A
+  variadic function is declared with `...` (`fn open(path: *CChar, flags:
+  i32, ...) -> i32;`); a struct whose C name is reserved (stdio's `_FILE`)
+  cannot be imported. Output is `TextWriter` (CeeSafe's core library) and
+  `write(2)`, not `printf`.
+- **Imported structs**: CeeSafe does not copy or build one but as a
+  `static mut` initialiser, so a program's records live in a static and
+  are filled field by field.
+
 ## References (CeeSafe's repository)
 
 - The language: `spec/type-system.md`. §28 is C interoperability (`@export`,

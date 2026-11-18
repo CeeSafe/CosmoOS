@@ -164,6 +164,7 @@ struct cfs {
      * the checker sees is what a writable mount would see (design.md,
      * "Read-only mounts"; CFS-1). */
     bool rdonly;
+    uint64_t grown_from;       /* MOUNT_GROW: the member's blocks before it grew, 0 if none (design.md) */
     unsigned replay_freed;     /* blocks the mount's free-record replay released */
     unsigned replay_orphans;   /* inodes its orphan replay released */
     /* What the mount did, for the check on an unmounted device
@@ -379,7 +380,6 @@ int cfs_format_mirror_devs(struct blkdev **bd, unsigned n, const char *label);
 /* Bit `i` of a byte map. */
 static inline bool cfs_bit_test(const uint8_t *map, uint64_t i) { return (map[i >> 3] >> (i & 7)) & 1; }
 static inline void cfs_bit_set(uint8_t *map, uint64_t i) { map[i >> 3] |= (uint8_t)(1u << (i & 7)); }
-static inline void cfs_bit_clear(uint8_t *map, uint64_t i) { map[i >> 3] &= (uint8_t)~(1u << (i & 7)); }
 /* Dirty in the open transaction: in memory only (the scrub's question). */
 bool cfs_buf_is_dirty(struct cfs *fs, uint64_t blkno);
 

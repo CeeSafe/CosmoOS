@@ -373,7 +373,7 @@ device and frees the posted buffers. `eth0` gets its IPv4 configuration
 in `netif_register` from fw_cfg `opt/cosmo/ipv4` (`addr/prefix,gateway`)
 or the QEMU user-mode defaults (`10.0.2.15/24`, `10.0.2.2`).
 
-### fw_cfg (`kernel/arch/x86_64/fwcfg.c`, `kernel/core/fwcfg.c`, `kernel/fwcfg.h`, `arch/fwcfg.h`)
+### fw_cfg (`kernel/arch/x86_64/fwcfg.c`, `kernel/core/fwcfg.cee`, `kernel/fwcfg.h`, `arch/fwcfg.h`)
 
 The QEMU firmware configuration device through the traditional I/O
 ports (selector 0x510, data 0x511): check the `QEMU` signature, walk

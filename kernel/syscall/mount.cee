@@ -27,9 +27,11 @@ extern "C" {
     const PRIV_MOUNT: u32 = 1;
     const COSMO_MOUNT_RDONLY: u32 = 1;
     const COSMO_MOUNT_SCRATCH: u32 = 2;
+    const COSMO_MOUNT_GROW: u32 = 4;
     const COSMO_UMOUNT_FORCE: u32 = 1;
     const MOUNT_RDONLY: u32 = 1;
     const MOUNT_SCRATCH: u32 = 4;
+    const MOUNT_GROW: u32 = 16;
     const VFS_UMOUNT_FORCE: u32 = 1;
     const EPERM: i32 = 1;
     const ENOENT: i32 = 2;
@@ -138,11 +140,12 @@ unsafe fn mountCall(a: *mut syscall_args) -> i64 {
         return -EPERM as i64;
     }
     let cflags = truncate<u32>(arg(a, 3));
-    if ((cflags & ((COSMO_MOUNT_RDONLY | COSMO_MOUNT_SCRATCH) ^ 0xFFFFFFFF)) != 0) {
+    if ((cflags & ((COSMO_MOUNT_RDONLY | COSMO_MOUNT_SCRATCH | COSMO_MOUNT_GROW) ^ 0xFFFFFFFF)) != 0) {
         return -EINVAL as i64; // an unknown flag bit: see sys_mmap
     }
     let flags = (if ((cflags & COSMO_MOUNT_RDONLY) != 0) MOUNT_RDONLY else 0) |
-        (if ((cflags & COSMO_MOUNT_SCRATCH) != 0) MOUNT_SCRATCH else 0);
+        (if ((cflags & COSMO_MOUNT_SCRATCH) != 0) MOUNT_SCRATCH else 0) |
+        (if ((cflags & COSMO_MOUNT_GROW) != 0) MOUNT_GROW else 0);
     var source = [0u8; 16];
     var target = [0u8; 1024];
     var fstype = [0u8; 16];
@@ -163,6 +166,10 @@ unsafe fn mountCall(a: *mut syscall_args) -> i64 {
     }
     if ((flags & MOUNT_SCRATCH) != 0 && strcmp(fs as *CChar, "ramfs\0".ptr as *CChar) != 0) {
         return -EINVAL as i64; // a scratch root is ramfs's alone
+    }
+    if ((flags & MOUNT_GROW) != 0 &&
+        (strcmp(fs as *CChar, "cosmofs\0".ptr as *CChar) != 0 || (flags & MOUNT_RDONLY) != 0)) {
+        return -EINVAL as i64; // growing is a writable cosmofs mount's alone
     }
     let none = source[0] == 0 || strcmp(src as *CChar, "none\0".ptr as *CChar) == 0;
     return syscallMount(if (none) 0 as *CChar else src as *CChar, tgt as *CChar, fs as *CChar, flags) as i64;

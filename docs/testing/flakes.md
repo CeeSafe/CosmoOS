@@ -5828,3 +5828,14 @@ by then is timing: the first sighting in the entropy jobs of the last ten CI run
 passing boot keeps no serial log, so an earlier death that still passed cannot be ruled out, but this one fails the
 boot). The wake fix under test changes no part of that path.
 
+
+## `process-user` over its bound in a four-CPU AArch64 boot under another project's tests, 2026-11-18
+
+Local validation of R2's first PR (a disk that grew keeps its partitions) on `5c97ee3b`, 19:44-20:50 local. AArch64
+`QEMU_SMP=4 test` failed `SELFTEST: process-user ... FAIL: check failed: clock_since_ns(t0) < 15000000000ULL at line
+263 (23090 ms)`, with the watchdog's 20 s report (`[WATCHDOG] no progress for 20002 ms`); the matrix's other seven
+AArch64 boots passed. On the same Mac another session ran CeeSafe's contract suite (`ceesafec` processes at 96 % of a
+CPU) and the Parallels VM ran (87 %); the load average read 11.75 / 65.28 / 77.76 at 20:00, during the matrix's boots.
+Run again alone at 21:23 with the one-minute load at 6.96, on the same tree: PASS in 209.3 s, `process-user` 6770 ms.
+The load, as in the entries of 2026-10-25, 2026-11-11 and 2026-11-12; the change does not reach `process-user`'s
+path (the GPT parser, the partition scan and init's root mount). Nothing was changed.

@@ -815,6 +815,153 @@ root of every target's ESP (`fat_add_file`); the passphrase is slot 1.
 The installer's copies of the key and the passphrase are wiped once
 used.
 
+## First boot without a console (roadmap 1.3 R2)
+
+The design note R2's acceptance names. A cloud boots a disk image it was
+given, larger than the image, with a seed: a small disk holding cloud-init's
+NoCloud files. CosmoOS takes from the seed the SSH key, the host name and
+the network, and grows its root to the disk. The owner chose the shape on
+2026-11-18: a prebuilt installed image that grows, and a seed read from ISO
+9660 or FAT.
+
+### The cloud image
+
+The release set gains `cosmo-cloud-ARCH.qcow2`: an installed system, the
+disk `cosmo-install` writes. `scripts/mkcloudimage.py` makes it the way
+`make test-install` makes one: it boots the release's live image in QEMU
+with a blank disk, runs `cosmo-install` onto it, powers off and converts
+the disk to qcow2. The disk is small (the ESP, and a root with the system
+and half as much again free, rounded up to a MiB). `cosmo-install` is
+unchanged: its ESP is the release's signed ESP byte for byte, its root is
+`root=boot-disk`, `/etc/svc/dropbear` is written with an empty
+`/root/.ssh/authorized_keys`, and `/etc/passwd` holds `root:*`. Nothing
+specific to a machine is in the image: dropbear makes its host key at its
+first start, which is on the machine, and there is no `/etc/hostname`.
+Every machine made from one image shares its disk and partition GUIDs and
+its pool's uuid, as cloud images of other systems do. The GUIDs are drawn
+when the image is built, so the image is not byte-reproducible; the
+release set records its SHA-256 like every other file in it.
+
+### A disk that grew
+
+The image copied to a larger disk keeps its GPT where it was: the primary
+header at LBA 1 still points at a backup header that is now in the middle
+of the disk. The kernel refused such a table ("backup header is not on the
+last sector") and so registered no partition and found no root. It now
+accepts a table whose primary's alternate LBA is **before** the last
+sector and past the usable range, when the backup header there passes
+every check a backup on the last sector passes (`gpt.h`'s `backup_lba`
+says where it is), and logs `part: DISK: the disk grew after its partition
+table was written (backup header at sector N of M)`. One whose alternate
+LBA is past the end (a disk that shrank) or inside the usable range is
+still refused. The partitions register as before, so `root=boot-disk`
+finds its root.
+
+Before it unlocks or mounts the root, `init` runs `cosmo-grow --table
+ROOTDEV` (`userland/system/cosmo-grow.cee`, a user program in CeeSafe, in the boot archive and on the
+root). It reads the root's disk's table and, when the table fits the disk,
+does nothing and says nothing: every boot but the first on a larger disk.
+Otherwise it rewrites the table for the disk's real size: the usable range
+ends where a table for this disk ends, the backup entries and header move
+to the last sectors, and the root partition, when it is the CosmoOS root
+type and the last partition, ends at the new last usable LBA. Only a table
+exactly as `gpt_build` writes it is rewritten (cosmo-install's, so the
+cloud image's): `cosmo-grow` rebuilds it for its old size and compares it
+with the disk byte for byte first, so nothing a rebuild would drop -- an
+attribute, a name, another tool's layout -- is lost; another table is left
+as it is (exit 3), and so is a disk that grew by fewer sectors than the
+backup takes (the new backup would overlap the old). It writes the new
+backup first and the primary last, so a crash between leaves the old
+table, which the kernel still accepts; a crash during the primary's write
+(33 sectors) can leave a table the kernel refuses, since it does not
+recover from one copy (backlog BLK-11). Then it clears the old backup
+header and `RESCAN`s; a refused rescan that leaves every partition
+registered (one in use) means the new sizes apply from the next boot, and
+one that leaves fewer is a failure. A root partition that is not the last
+one keeps its size (the table is still moved), and `cosmo-grow` says so.
+Whatever it says, the root is then mounted as it is.
+
+### The file system grows
+
+`init` mounts the root with `COSMO_MOUNT_GROW` (a writable cosmofs
+mount's flag; any other refuses it). A pool of one member whose device is
+larger than the member table says grows as the table loads: the member's
+block count and the superblock's total become the device's (at most
+`CFS_MAX_BLOCKS`, said when it binds), the new blocks are free in memory,
+every bitmap chunk that holds one is dirty, and the mount commits before
+it returns, so `df` and the disk agree from the first command. A crash
+before that commit leaves the old size, which the next mount grows again.
+The kernel says `cosmofs: member 0 grows from N to M blocks`. A member with
+copies, a pool with spares and a pool of several members keep their size
+(a line says why when the device is larger). On a root that already fills
+its partition the flag changes nothing. The design is in the cosmofs
+design, "Growing a member".
+
+Growth does not depend on the seed: a cloud image booted without one still
+fills its disk. An installed disk whose root already fills it is unchanged.
+
+### The seed
+
+`/etc/rc` runs `cosmo-seed` before `svc boot` (dropbear must see the key
+when it starts) and before `hostname -F`. It looks at every block device
+`/dev/blkctl` lists, reading sectors, no file system mounted:
+
+- **ISO 9660**: a primary volume descriptor at byte 32768 whose volume
+  identifier is `cidata` (any case). File names come from the Joliet
+  supplementary descriptor when there is one, else from Rock Ridge `NM`
+  entries; the files are in the root directory.
+- **FAT12, 16 or 32**: a boot sector whose volume label (or the root
+  directory's label entry) is `cidata`; long file names are read.
+
+No seed: `cosmo-seed` prints nothing and exits 0, and the boot is as today.
+More than one: none is used, and it says so. It reads `meta-data`,
+`user-data` and `network-config`, each at most 64 KiB.
+
+**The subset.** A small YAML reader takes block maps, block lists, flow
+lists (`[a, b]`), and plain, single- and double-quoted scalars; anything
+else in a file is a parse error, which skips that file with a line and
+does not stop the boot. Keys outside the subset are named in one line and
+ignored.
+
+| File | Keys used |
+|---|---|
+| `meta-data` | `instance-id` (required), `local-hostname` |
+| `user-data` | only when its first line is `#cloud-config`: `hostname`, `ssh_authorized_keys` (a list) |
+| `network-config` | version 2: `ethernets`, each by `match: macaddress` or the interface name, with `dhcp4`, `addresses` (one IPv4 CIDR), `gateway4` or a `routes` entry `to: default` with `via`, and `nameservers: addresses` |
+
+**Once per instance.** The host name and the keys are applied when the
+seed's `instance-id` differs from `/var/lib/cloud/instance-id` (or that
+file is absent): `hostname` (from `user-data`, else `local-hostname`) is
+checked as the kernel checks a DHCP name (letters, digits, `-` and `.`, at
+most 64), written to `/etc/hostname` and set; each key is appended to
+`/root/.ssh/authorized_keys` unless it is already there (the directory
+0700, the file 0600); then the instance id is written. A host name set by
+a seed is kept: `cosmo-seed` writes `/var/lib/cloud/hostname`, and
+`netcfg` does not apply a DHCP server's name while that file exists.
+
+**The network, every boot.** An interface named in `network-config` with
+`dhcp4: true` and no address keeps the kernel's DHCP client, as today. One
+with an address is configured static through `/dev/net/tapctl` (a new
+operation; the kernel's DHCP client stops for that interface; the network
+design, "A static address from user space"), with its gateway as the
+default route, and its name servers are written to `/etc/resolv.conf` the
+way `netcfg` writes it. Interfaces the file does not name keep DHCP. The
+kernel's state is not on disk, so this runs at every boot that has the
+seed; a seed removed later leaves the machine on DHCP.
+
+### The proof
+
+`make test-cloud` (`tests/boot/cloud_test.py`, both architectures) copies
+the cloud image to a disk four times its size and boots it with a seed it
+writes itself (`tools/mkseed.py`, ISO 9660 with Joliet, or FAT, no host
+tools needed): the seed's static address, not the DHCP one, is the one
+QEMU forwards SSH to; the harness logs in with the seed's key, and checks
+`hostname`, and that `df /` is the disk less the ESP to within the
+file system's own overhead. A second boot of the same disk applies
+nothing again (the key is in `authorized_keys` once). A copy booted
+without a seed reaches the installed system's console as today, its root
+grown.
+
 ## cosmo-key (`userland/system/cosmo-key.c`; roadmap 1.2 B5)
 
     cosmo-key list [PATH]

@@ -29,6 +29,7 @@ extern "C" {
         entry_size: u32;
         nparts: u32;
         parts: [gpt_part; 32];
+        backup_lba: u64;
     }
     struct gpt_build_part {
         index: u32;
@@ -194,7 +195,8 @@ enum Reason {
     EntryArrayOverlapsItsHeader,
     EntryArrayCrc,
     SectorSize,
-    BackupHeaderIsNotOnTheLastSector,
+    BackupHeaderIsPastTheLastSector,
+    BackupHeaderIsInsideTheUsableRange,
     BackupHeader,
     BackupHeaderDoesNotPointAtThePrimary,
     PrimaryAndBackupHeadersDisagree,
@@ -222,7 +224,8 @@ fn reasonText(reason: Reason) -> StringView => match (reason) {
     Reason.EntryArrayOverlapsItsHeader => "entry array overlaps its header\0",
     Reason.EntryArrayCrc => "entry array CRC\0",
     Reason.SectorSize => "sector size\0",
-    Reason.BackupHeaderIsNotOnTheLastSector => "backup header is not on the last sector\0",
+    Reason.BackupHeaderIsPastTheLastSector => "backup header is past the last sector\0",
+    Reason.BackupHeaderIsInsideTheUsableRange => "backup header is inside the usable range\0",
     Reason.BackupHeader => "backup header\0",
     Reason.BackupHeaderDoesNotPointAtThePrimary => "backup header does not point at the primary\0",
     Reason.PrimaryAndBackupHeadersDisagree => "primary and backup headers disagree\0",
@@ -358,8 +361,13 @@ fn parse(
     if (!protective) { return Err(Failure.NotGpt); }
 
     let primary = readHeader(disk, read, 1, scratch)?;
-    if (primary.altLba != n - 1) { return Err(Failure.Bad(Reason.BackupHeaderIsNotOnTheLastSector)); }
-    let backup = match (readHeader(disk, read, n - 1, scratch)) {
+    // The backup header is on the last sector -- or, on a disk that grew after the table was written (an image
+    // copied to a larger disk), where the primary says it is, past the usable range: the table is the same table,
+    // every check below still holds, and the caller sees `backup_lba` short of the end (roadmap 1.3 R2). A backup
+    // past the end (a disk that shrank) or inside the usable range is refused.
+    if (primary.altLba > n - 1) { return Err(Failure.Bad(Reason.BackupHeaderIsPastTheLastSector)); }
+    if (primary.altLba <= primary.lastUsable) { return Err(Failure.Bad(Reason.BackupHeaderIsInsideTheUsableRange)); }
+    let backup = match (readHeader(disk, read, primary.altLba, scratch)) {
         Ok(h) => h,
         Err(Failure.Bad(_)) => { return Err(Failure.Bad(Reason.BackupHeader)); } // the copy that failed, not which check
         Err(other) => { return Err(other); }
@@ -384,6 +392,7 @@ fn parse(
     out.disk_guid = primary.diskGuid;
     out.first_usable = primary.firstUsable;
     out.last_usable = primary.lastUsable;
+    out.backup_lba = primary.altLba;
     out.nr_entries = primary.nrEntries;
     out.entry_size = primary.entrySize;
     out.nparts = 0;

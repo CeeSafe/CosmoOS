@@ -1064,6 +1064,43 @@ Allocation picks the member with the most free blocks and then first-fits
 within it, so a pool fills evenly rather than filling member 0 first; a
 hint keeps a sequential file on one member.
 
+### Growing a member (roadmap 1.3 R2)
+
+A disk image copied to a larger disk and its partition grown
+(`cosmo-grow`, `docs/userland/design.md`, "First boot without a console")
+leaves a pool whose member is smaller than its device, which mounts
+(above: a member no larger than its device). `MOUNT_GROW`
+(`COSMO_MOUNT_GROW`, a writable cosmofs mount's alone; `init` passes it
+for the root) makes the mount take the rest. No format change: the member
+table already says how big a member is, and an allocation index already
+has a slot for every chunk a member can have.
+
+- **Where.** `cfs_members_load`, after the member's device is known and
+  before `layout` sizes the linear space: the member's `nblocks` becomes
+  its device's (at most `CFS_MAX_BLOCKS`, what one allocation index
+  names), the superblock's `total_blocks` grows by as much, and
+  `grown_from` keeps the old count. Everything sized from the member --
+  the flat bitmap, the dirty flags, the reserve -- is sized after this,
+  so nothing is reallocated on a live filesystem.
+- **The bitmap.** The load reads only the chunks the old size had (the
+  index names no others); the bits from `grown_from` to the end of the
+  last chunk are cleared -- the old last chunk's padding included -- and
+  the padding of the new last chunk set as at every mount; every chunk
+  from the one holding `grown_from` on is marked dirty. The free-count
+  comparison with the superblock leaves the grown blocks out.
+- **The commit.** The mount commits before it returns: the member table
+  (`cfs_members_store` writes the new `nblocks`), the new chunks into the
+  index's slots past the old count, the superblock's total and free
+  count. Until it is durable the disk is the old size, and the next mount
+  grows again; a second load of the pool in the same mount (the older
+  root) starts again from its table.
+- **What does not grow.** A pool of several members (a later member's
+  label records its size), a member with copies or a copy-state record,
+  and a pool with spares (their records and regions are sized from the
+  member): a line says so when the device is larger, and the mount goes
+  on at the old size. Versions 2 and 3 have no member table and do not
+  grow.
+
 ## Format version 5: mirrored members
 
 Version 4 gave a block an address that names a member. Version 5 lets a

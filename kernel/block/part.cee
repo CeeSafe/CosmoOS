@@ -56,6 +56,7 @@ extern "C" {
     struct gpt_table {
         nparts: u32;
         parts: [gpt_part; 32];
+        backup_lba: u64;
     }
     struct blk_part_info {
         disk: [u8; 16];
@@ -564,6 +565,20 @@ unsafe fn scan(disk: *mut blkdev, nparts: *mut u32) -> i32 {
         }
         if (!nparts.isNull()) {
             nparts.write(n);
+        }
+        // An image copied to a larger disk keeps its table where it was (gpt.h): said once per scan, and left for
+        // user space to move (cosmo-grow; roadmap 1.3 R2).
+        if (table.backup_lba != d.capacity - 1) {
+            var buffer = [0u8; 160];
+            var line = TextWriter.create(mut buffer[..]);
+            line.text("part: ");
+            writeName(mut line, disk as *blkdev);
+            line.text(": the disk grew after its partition table was written (backup header at sector ");
+            line.decimal(table.backup_lba);
+            line.text(" of ");
+            line.decimal(d.capacity);
+            line.byte(41); // ')'
+            KernelLog.send(LogLevel.Info, line);
         }
     }
     mutex_unlock(partLock());

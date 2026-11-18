@@ -118,6 +118,7 @@ static void fs_selftest(void)
     /* COSMO_MOUNT_SCRATCH: a ramfs root of 01777, as init mounts /tmp on
      * a disk root; ramfs's alone. */
     CHECK(cosmo_mount("none", "/tmp/flagm", "procfs", COSMO_MOUNT_SCRATCH) == -COSMO_EINVAL);
+    CHECK(cosmo_mount("none", "/tmp/flagm", "ramfs", COSMO_MOUNT_GROW) == -COSMO_EINVAL);   /* cosmofs's alone */
     CHECK(cosmo_mount("none", "/tmp/flagm", "ramfs", COSMO_MOUNT_SCRATCH) == 0);
     CHECK(cosmo_stat("/tmp/flagm", &st) == 0 && st.mode == 01777 && st.uid == 0);
     CHECK(cosmo_umount2("/tmp/flagm", 0) == 0);
@@ -6372,6 +6373,28 @@ static bool check_root(const char *dev)
 }
 
 /*
+ * A disk image copied to a larger disk (roadmap 1.3 R2; docs/userland/
+ * design.md, "First boot without a console"): the kernel found its table
+ * short of the disk's end, and cosmo-grow moves it there and grows the root
+ * partition to the end, before anything holds the root open. Quiet when the
+ * table fits, which is every boot but the first on a larger disk; whatever
+ * it says, the root is mounted as it is.
+ */
+static void grow_root_table(const char *dev)
+{
+    const char *argv[] = { "cosmo-grow", "--table", dev, NULL };
+    fflush(stdout);
+    pid_t pid = spawnve("/sbin/cosmo-grow", argv, NULL, NULL, 0);
+    int st = -1;
+    if (pid < 0 || waitpid(pid, &st, 0) != pid) {
+        printf("init: cosmo-grow did not run (%s); the root %s keeps its size\n", strerror(errno), dev);
+        return;
+    }
+    if (st != 0)
+        printf("init: the root %s keeps its size (cosmo-grow status %d)\n", dev, st);
+}
+
+/*
  * An encrypted root is unlocked before it is checked or mounted (roadmap
  * 1.2 B5; docs/kernel-services/filesystem/cosmofs/design.md, "Boot"):
  * cosmo-key asks for the passphrase on this console -- every output the
@@ -6427,13 +6450,14 @@ static bool switch_to_disk_root(void)
             printf("init: root=%s: no such device; staying on the live root\n", spec);
         return false;
     }
+    grow_root_table(dev);
     if (!unlock_root(dev) || !check_root(dev))
         return false;
     if (mkdir("/sysroot", 0755) < 0 && errno != EEXIST) {
         printf("init: /sysroot: %s; staying on the live root\n", strerror(errno));
         return false;
     }
-    if (mount(dev, "/sysroot", "cosmofs", 0) < 0) {
+    if (mount(dev, "/sysroot", "cosmofs", COSMO_MOUNT_GROW) < 0) {   /* the pool takes a grown partition (R2) */
         printf("init: cannot mount %s (root=%s): %s; staying on the live root\n", dev, spec, strerror(errno));
         rmdir("/sysroot");
         return false;

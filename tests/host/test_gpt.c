@@ -113,6 +113,7 @@ static void test_roundtrip(uint32_t ss, uint64_t n)
     EXPECT(memcmp(t.parts[1].uuid, p[1].uuid, 16) == 0 && memcmp(t.parts[0].type, gpt_type_esp, 16) == 0);
     EXPECT(memcmp(t.disk_guid, disk_guid, 16) == 0);
     EXPECT(t.first_usable == gpt_build_first_usable(ss) && t.last_usable == gpt_build_last_usable(ss, n));
+    EXPECT(t.backup_lba == n - 1);
 
     /* A failing read is GPT_IO, whichever read it is. */
     for (int k = 1; k <= 5; k++) {   /* MBR, both headers, both arrays */
@@ -160,11 +161,37 @@ static void test_roundtrip(uint32_t ss, uint64_t n)
     write_table(d, q, 2);
     EXPECT(parse(d, &t, &why) == GPT_BAD && strcmp(why, "partition without a unique GUID") == 0);
 
-    /* A disk that grew (the backup is no longer on the last sector). */
+    /* A disk that shrank (the table was written for a disk one sector longer): the backup is past the end. */
     write_table(d, p, 2);
-    struct disk grown = *d;
-    grown.n = n - 1;   /* as if the table were written for a disk one sector longer */
-    EXPECT(gpt_parse(ss, grown.n, disk_read, &grown, (uint8_t[GPT_SCRATCH_BYTES]){ 0 }, &t, &why) == GPT_BAD);
+    struct disk shrunk = *d;
+    shrunk.n = n - 1;
+    EXPECT(gpt_parse(ss, shrunk.n, disk_read, &shrunk, (uint8_t[GPT_SCRATCH_BYTES]){ 0 }, &t, &why) == GPT_BAD &&
+           strcmp(why, "backup header is past the last sector") == 0);
+
+    /* A disk that grew (roadmap 1.3 R2: an image copied to a larger disk): the same table, its backup where the
+     * primary says, short of the last sector. Accepted, and backup_lba says where. */
+    write_table(d, p, 2);
+    struct disk *grown = disk_new(ss, n + 64);
+    memcpy(grown->data, d->data, (size_t)n * ss);
+    EXPECT(parse(grown, &t, &why) == GPT_OK);
+    EXPECT(t.backup_lba == n - 1 && t.last_usable == gpt_build_last_usable(ss, n) && t.nparts == 2 &&
+           t.parts[1].last_lba == p[1].last_lba);
+    /* ... and still checked whole: a damaged backup there is refused. */
+    grown->data[(n - 1) * ss + 40] ^= 1;
+    EXPECT(parse(grown, &t, &why) == GPT_BAD && strcmp(why, "backup header") == 0);
+    disk_free(grown);
+
+    /* A primary whose alternate LBA is inside its own usable range is refused. */
+    write_table(d, p, 2);
+    uint8_t *h = d->data + ss;
+    uint64_t alt = gpt_build_last_usable(ss, n);
+    for (int i = 0; i < 8; i++)
+        h[32 + i] = (uint8_t)(alt >> (8 * i));
+    memset(h + 16, 0, 4);
+    uint32_t crc = gpt_crc32(h, 92);
+    for (int i = 0; i < 4; i++)
+        h[16 + i] = (uint8_t)(crc >> (8 * i));
+    EXPECT(parse(d, &t, &why) == GPT_BAD && strcmp(why, "backup header is inside the usable range") == 0);
 
     /* No protective MBR: not a GPT disk, even with a good header. */
     write_table(d, p, 2);

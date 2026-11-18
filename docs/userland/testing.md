@@ -222,6 +222,25 @@ typed at the prompt, every serial log kept in `$(OUT)/test-install/`.
   the repository the installer copied to `/var/lib/pkg/repo` (roadmap M6;
   the install stage also checks the installed `repos.conf` names it and
   that it holds `INDEX`).
+- **grow** (roadmap 1.3 R2; design.md, "First boot without a console"):
+  a copy of the installed disk made four times as long (the file
+  truncated up, a sparse tail) boots alone. The log must show the
+  kernel's `part: DISK: the disk grew after its partition table was
+  written (backup header at sector N-1 of 4N)`, `cosmo-grow`'s `the
+  partition table now covers 4N sectors (it covered N)` and the root's
+  new and old sector counts, and the switch to the disk root;
+  `/persist.txt` still holds the nonce. The pool grows with it: the
+  kernel's `cosmofs: member 0 grows from N to M blocks` with N the old
+  partition's whole 4 KiB blocks and M the new one's, no free-count
+  warning, `df -k /` showing M blocks, and 208 MiB (more than the old
+  root held) of `/bin/busybox` gzipped and appended to itself -- incompressible,
+  as cosmofs compresses records -- written with its SHA-256 taken. On the host
+  both GPT copies are valid and equal at the new end, the ESP's entry is
+  unchanged and the root's ends at the new last usable sector.
+  **grow-again** boots the same disk: the disk root, no `the disk grew`,
+  `cosmo-grow:` or `grows` line, `cosmofs: root checked, 0 findings, 0
+  repaired`, no free-count warning, the same `df` size and `/big`'s
+  SHA-256 read back.
 - **fallback**: a copy of the live image whose command line says
   `root=vda` (the blank scratch disk on both machines), re-signed with the
   build's key (`--key`, `scripts/mkmanifest.py resign`): the kernel
