@@ -14,7 +14,10 @@
  *
  * A table is accepted only whole: the protective MBR, the primary header
  * and its entry array, and the backup header and its entry array must all
- * be valid and agree. There is no recovery from one copy; that is a
+ * be valid and agree. The backup header is on the last sector, or, on a
+ * disk that grew after the table was written (an image copied to a larger
+ * disk; roadmap 1.3 R2), where the primary says it is, between the usable
+ * range and the last sector; `backup_lba` says which. There is no recovery from one copy; that is a
  * choice for a later unit (inventory), and refusing is the safe half of it.
  */
 
@@ -55,6 +58,7 @@ struct gpt_table {
     uint32_t nr_entries, entry_size;
     unsigned nparts;
     struct gpt_part parts[GPT_MAX_PARTS];   /* used entries, in index order */
+    uint64_t backup_lba;     /* the backup header's LBA: the last sector, or before it on a disk that grew */
 };
 
 /* Read `count` sectors from `lba` into `buf`; 0 or nonzero on failure. */

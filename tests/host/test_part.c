@@ -409,6 +409,7 @@ enum gpt_result gpt_parse(uint32_t sector_size, uint64_t nsectors, gpt_read_fn r
         *why = reasons[pick(3)];
         return GPT_BAD;
     }
+    out->backup_lba = nsectors - 1;   /* the table fits its disk: no "the disk grew" line */
     out->nparts = pick(7);
     if (pick(40) == 0)
         out->nparts = GPT_MAX_PARTS;

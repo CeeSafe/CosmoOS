@@ -31,6 +31,9 @@ int blkdevs_read(const struct cosmo_blkctl_dev *d, uint64_t lba, uint64_t count,
 int blkdevs_write(const struct cosmo_blkctl_dev *d, uint64_t lba, uint64_t count, const void *buf);
 /* The device's volatile cache to stable media. 0 or -errno. */
 int blkdevs_flush(const struct cosmo_blkctl_dev *d);
+/* Re-read `disk`'s partition table (RESCAN); *partitions (if not NULL)
+ * gets how many registered. 0 or -errno (-EBUSY while one is in use). */
+int blkdevs_rescan(const char *disk, unsigned *partitions);
 /* A FORMAT of `fstype` named `label` ("" for none). 0 or -errno. */
 int blkdevs_format(const char *name, const char *fstype, const char *label);
 /* A two-way mirror over devices `a` and `b` (roadmap 1.2 B2). */

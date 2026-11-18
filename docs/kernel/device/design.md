@@ -229,7 +229,10 @@ the comparison against the C original are CeeSafe's
 are the C original's. A table is accepted only whole: a
 protective MBR (an `0xEE` record; without one the disk is "not GPT",
 which is not an error), a primary header at LBA 1 and a backup on the
-last sector, each with a valid CRC, a revision 1.x, a size of 92 bytes
+last sector (or, on a disk that grew after the table was written, where
+the primary's alternate LBA says, between the usable range and the last
+sector: roadmap 1.3 R2; `gpt_table.backup_lba` says which, and the scan
+logs the disk as grown), each with a valid CRC, a revision 1.x, a size of 92 bytes
 to one sector, `MyLBA` where it was read, an entry array on the disk
 outside the usable range; the backup pointing at the primary and agreeing
 on disk GUID, usable range, entry count, entry size and entry CRC; both

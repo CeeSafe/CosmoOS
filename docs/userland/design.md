@@ -846,24 +846,34 @@ release set records its SHA-256 like every other file in it.
 
 The image copied to a larger disk keeps its GPT where it was: the primary
 header at LBA 1 still points at a backup header that is now in the middle
-of the disk. The kernel refused such a table (`gpt.cee`,
-`BackupHeaderIsNotOnTheLastSector`) and so registered no partition and
-found no root. It now accepts a table whose primary's alternate LBA is
-**before** the last sector, when the backup header there passes every
-check a backup on the last sector passes, and flags the disk `GREW` in
-`/dev/blkctl`'s device list; one whose alternate LBA is past the end (a
-disk that shrank) is still refused. The partitions register as before, so
-`root=boot-disk` finds its root.
+of the disk. The kernel refused such a table ("backup header is not on the
+last sector") and so registered no partition and found no root. It now
+accepts a table whose primary's alternate LBA is **before** the last
+sector and past the usable range, when the backup header there passes
+every check a backup on the last sector passes (`gpt.h`'s `backup_lba`
+says where it is), and logs `part: DISK: the disk grew after its partition
+table was written (backup header at sector N of M)`. One whose alternate
+LBA is past the end (a disk that shrank) or inside the usable range is
+still refused. The partitions register as before, so `root=boot-disk`
+finds its root.
 
 Before it unlocks or mounts the root, `init` runs `cosmo-grow --table
-DISK` (in the boot archive) when the root's disk is flagged `GREW`. It
-rewrites the table for the disk's real size: the last usable LBA moves to
-the end, the backup entries and header move to the last sectors, and the
-root partition, when it is the last partition, ends at the new last usable
-LBA. It writes the new backup first and the primary last, so a crash
-between leaves the old table, which the kernel still accepts; then
-`RESCAN`. A root partition that is not the last one keeps its size (the
-table is still moved), and `cosmo-grow` says so.
+ROOTDEV` (`userland/system/cosmo-grow.c`, in the boot archive and on the
+root). It reads the root's disk's table and, when the table fits the disk,
+does nothing and says nothing: every boot but the first on a larger disk.
+Otherwise it rewrites the table for the disk's real size: the usable range
+ends where a table for this disk ends, the backup entries and header move
+to the last sectors, and the root partition, when it is the CosmoOS root
+type and the last partition, ends at the new last usable LBA. Only a table
+exactly as `gpt_build` writes it is rewritten (cosmo-install's, so the
+cloud image's): `cosmo-grow` rebuilds it for its old size and compares it
+with the disk byte for byte first, so nothing a rebuild would drop -- an
+attribute, a name, another tool's layout -- is lost; another table is left
+as it is (exit 3). It writes the new backup first and the primary last, so
+a crash between leaves the old table, which the kernel still accepts;
+then it clears the old backup header and `RESCAN`s. A root partition that
+is not the last one keeps its size (the table is still moved), and
+`cosmo-grow` says so. Whatever it says, the root is then mounted as it is.
 
 ### The file system grows
 
