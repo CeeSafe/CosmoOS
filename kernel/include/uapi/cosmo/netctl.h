@@ -41,9 +41,7 @@
  * which netcfg writes to /etc/hostname -- the record grows from 64 to 128
  * bytes -- and appends three read-only sections after the lease section,
  * what `ip` prints: the interfaces, IPv4's routes and the ARP table. No
- * command changes. Version 8 also takes IPV4_SET (roadmap 1.3 R2): a command
- * added, its own struct, no record or snapshot changed -- so the version
- * stays, and a kernel without it refuses the command with -EINVAL. */
+ * command changes. Version 8 also takes IPV4_SET (roadmap 1.3 R2; no record changed). */
 #define COSMO_NETCTL_VERSION 8
 /* A lease section time that is finite but beyond what 32 bits of
  * milliseconds hold (0xffffffff is an infinite lease). */
@@ -119,14 +117,8 @@ struct cosmo_netctl {
     uint32_t guest_addr;   /* network byte order (ignored by DEL) */
 };
 
-/*
- * IPV4_SET (roadmap 1.3 R2; docs/kernel-services/network/design.md, "A
- * static address from user space"): the machine's own interface `ifname`
- * (not loopback, not a guest's tap) gets `addr`/`prefix` and, unless 0,
- * `gateway` as its default route's next hop. Its DHCP client, if it has
- * one, stops first and for the rest of the boot: a lease cannot replace
- * the address. PRIV_NET, like every tapctl command.
- */
+/* IPV4_SET: the machine's own interface's static address; its DHCP client
+ * stops (docs/kernel-services/network/design.md, "A static address from user space"). */
 struct cosmo_netctl_ipv4 {
     uint16_t version;      /* COSMO_NETCTL_VERSION */
     uint16_t op;           /* COSMO_NETCTL_IPV4_SET */
