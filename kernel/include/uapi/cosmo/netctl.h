@@ -41,7 +41,9 @@
  * which netcfg writes to /etc/hostname -- the record grows from 64 to 128
  * bytes -- and appends three read-only sections after the lease section,
  * what `ip` prints: the interfaces, IPv4's routes and the ARP table. No
- * command changes. */
+ * command changes. Version 8 also takes IPV4_SET (roadmap 1.3 R2): a command
+ * added, its own struct, no record or snapshot changed -- so the version
+ * stays, and a kernel without it refuses the command with -EINVAL. */
 #define COSMO_NETCTL_VERSION 8
 /* A lease section time that is finite but beyond what 32 bits of
  * milliseconds hold (0xffffffff is an infinite lease). */
@@ -55,6 +57,7 @@
 #define COSMO_NETCTL_FILTER_ADD    3   /* insert a firewall rule for a guest */
 #define COSMO_NETCTL_FILTER_DEL    4   /* remove the firewall rule matching a tuple */
 #define COSMO_NETCTL_FILTER_POLICY 5   /* set a guest's default verdict for a direction */
+#define COSMO_NETCTL_IPV4_SET      6   /* an interface's static IPv4 address; its DHCP client stops */
 
 /* Protocol values (the IANA IP protocol numbers, stable). PROTO_ANY is a
  * filter wildcard only; FORWARD_* accept TCP/UDP. */
@@ -114,6 +117,24 @@ struct cosmo_netctl {
     uint16_t guest_port;   /* host byte order (ignored by DEL) */
     uint16_t reserved2;    /* must be 0 */
     uint32_t guest_addr;   /* network byte order (ignored by DEL) */
+};
+
+/*
+ * IPV4_SET (roadmap 1.3 R2; docs/kernel-services/network/design.md, "A
+ * static address from user space"): the machine's own interface `ifname`
+ * (not loopback, not a guest's tap) gets `addr`/`prefix` and, unless 0,
+ * `gateway` as its default route's next hop. Its DHCP client, if it has
+ * one, stops first and for the rest of the boot: a lease cannot replace
+ * the address. PRIV_NET, like every tapctl command.
+ */
+struct cosmo_netctl_ipv4 {
+    uint16_t version;      /* COSMO_NETCTL_VERSION */
+    uint16_t op;           /* COSMO_NETCTL_IPV4_SET */
+    char     ifname[16];   /* NUL-terminated */
+    uint32_t addr;         /* network byte order; not 0 */
+    uint32_t gateway;      /* network byte order; 0: none */
+    uint8_t  prefix;       /* 1..32 */
+    uint8_t  reserved[3];  /* must be 0 */
 };
 
 /* The read snapshot: this header, then `count` rules. */

@@ -323,6 +323,28 @@ void netif_set_ipv4(struct netif *nif, uint32_t addr, uint32_t mask, uint32_t ga
     nif->ip4.gateway = gateway;
 }
 
+/* IPV4_SET's interfaces (roadmap 1.3 R2): the machine's own "eth0" and loopback "lo", outside the registry the taps
+ * use; their references are counted and never reach zero. */
+static void static_released(struct kobject *obj) { (void)obj; EXPECT(!"a static interface was released"); }
+static const struct kobject_type g_static_type = { .name = "test-static-netif", .release = static_released };
+static struct netif g_eth0, g_lo;
+static unsigned g_dhcp_stops, g_finds;
+
+struct netif *netif_find(const char *name)
+{
+    g_finds++;
+    struct netif *n = strcmp(name, "eth0") == 0 ? &g_eth0 : strcmp(name, "lo") == 0 ? &g_lo : NULL;
+    if (n != NULL)
+        kobject_get(&n->obj);
+    return n;
+}
+
+void dhcp_client_stop(struct netif *nif)
+{
+    EXPECT(nif == &g_eth0);
+    g_dhcp_stops++;
+}
+
 void netif_set_up(struct netif *nif, bool up)
 {
     note(6, ((uint64_t)nif->index << 1) | up);
@@ -1036,8 +1058,58 @@ static void tap_bench(void)
     printf("  bench a round (a frame in, a frame out, a snapshot every 64) %.1f ns\n", t[4]);
 }
 
+/* IPV4_SET, written whole: the machine's interface gets the address, the mask from the prefix and the gateway, after
+ * its DHCP client stops; loopback, an unknown name, a bad prefix, a zero address, a reserved byte or a wrong length
+ * change nothing. */
+static void test_ipv4_set(void)
+{
+    kobject_init(&g_eth0.obj, &g_static_type);
+    kobject_init(&g_lo.obj, &g_static_type);
+    strcpy(g_eth0.name, "eth0");
+    strcpy(g_lo.name, "lo");
+    g_lo.flags = NETIF_LOOPBACK;
+    give_privs();
+    struct cosmo_netctl_ipv4 c;
+    memset(&c, 0, sizeof(c));
+    c.version = COSMO_NETCTL_VERSION;
+    c.op = COSMO_NETCTL_IPV4_SET;
+    strcpy(c.ifname, "eth0");
+    c.addr = IPV4_ADDR(10, 0, 2, 50);
+    c.gateway = IPV4_ADDR(10, 0, 2, 2);
+    c.prefix = 24;
+    EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c)) == (int64_t)sizeof(c));
+    EXPECT(g_dhcp_stops == 1 && g_eth0.ip4.addr == c.addr && g_eth0.ip4.gateway == c.gateway);
+    EXPECT(g_eth0.ip4.mask == IPV4_ADDR(255, 255, 255, 0));
+    c.prefix = 32;
+    EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c)) == (int64_t)sizeof(c));
+    EXPECT(g_eth0.ip4.mask == IPV4_ADDR(255, 255, 255, 255) && g_dhcp_stops == 2);
+    c.prefix = 1;
+    EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c)) == (int64_t)sizeof(c));
+    EXPECT(g_eth0.ip4.mask == IPV4_ADDR(128, 0, 0, 0));
+
+    struct cosmo_netctl_ipv4 bad[7];
+    for (unsigned i = 0; i < 7; i++)
+        bad[i] = c;
+    strcpy(bad[0].ifname, "lo");
+    strcpy(bad[1].ifname, "eth9");
+    bad[2].prefix = 0;
+    bad[3].prefix = 33;
+    bad[4].addr = 0;
+    bad[5].reserved[2] = 1;
+    memset(bad[6].ifname, 'e', sizeof(bad[6].ifname));   /* not terminated */
+    static const int64_t want[7] = { -EINVAL, -ENOENT, -EINVAL, -EINVAL, -EINVAL, -EINVAL, -EINVAL };
+    uint32_t addr = g_eth0.ip4.addr, mask = g_eth0.ip4.mask;
+    unsigned stops = g_dhcp_stops;
+    for (unsigned i = 0; i < 7; i++)
+        EXPECT(g_ctl_ops->write(NULL, 0, &bad[i], sizeof(bad[i])) == want[i]);
+    EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c) - 1) == -EINVAL);
+    EXPECT(g_eth0.ip4.addr == addr && g_eth0.ip4.mask == mask && g_dhcp_stops == stops && g_lo.ip4.addr == 0);
+    EXPECT(__atomic_load_n(&g_eth0.obj.refcount, __ATOMIC_RELAXED) == 1 && __atomic_load_n(&g_lo.obj.refcount, __ATOMIC_RELAXED) == 1);   /* every find put back */
+}
+
 static const struct host_test tests[] = {
     { "tap digest", test_digest },
+    { "tapctl ipv4 set", test_ipv4_set },
 };
 
 int main(void)

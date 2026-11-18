@@ -1809,6 +1809,26 @@ host name in each lease. `/sbin/ip` prints them in iproute2's format. Netlink
 is not added: `ip` is the substitute until it is. IPv6's neighbours and
 routes beyond the link are not listed (there are none of the latter).
 
+### A static address from user space (roadmap 1.3 R2)
+
+Before R2 an interface of the machine's own had DHCP or, under QEMU,
+fw_cfg's `opt/cosmo/ipv4`, read once at registration; a cloud's seed
+(`docs/userland/design.md`, "First boot without a console") can name a
+static address, and has neither. `/dev/net/tapctl` takes one more
+command, `COSMO_NETCTL_IPV4_SET` with `struct cosmo_netctl_ipv4`
+(`tap.cee`'s `ctlIpv4`): an interface name, an address, a prefix of 1 to
+32 and a gateway (0 for none). It is the machine's own interface only --
+loopback and a guest's tap (`NETIF_NODEFAULT`) are refused with
+`-EINVAL`, an unknown name with `-ENOENT` -- and its DHCP client stops
+first (`dhcp_client_stop`, which waits for the client's timer and work,
+so the command sleeps): a lease that arrived later would otherwise replace
+what was set. The client stays stopped for the boot; its lease leaves the
+snapshot's lease section with it. Then `netif_set_ipv4` sets address,
+mask and gateway as the fw_cfg path does, with its `net:` line. The
+command is PRIV_NET's, like every tapctl write, written whole at its
+struct's size. No record or snapshot changes, so `COSMO_NETCTL_VERSION`
+stays 8; a kernel without the command answers `-EINVAL`.
+
 ## Autoconfiguring the guest: DHCP and a DNS proxy (`tapsvc.c`; audit unit "autoconfiguring the guest")
 
 Forwarding and NAT let a guest reach the world, but only after it was
