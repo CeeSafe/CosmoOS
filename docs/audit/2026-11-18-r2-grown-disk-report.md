@@ -1,4 +1,4 @@
-# R2, first PR: a disk that grew keeps its partitions, 2026-11-18
+# R2, first PR: a disk that grew keeps its partitions and its root grows, 2026-11-18
 
 Roadmap 1.3 R2 ("First boot without a console"), started by the owner
 2026-11-18 while R1 waits for its hypervisor report. R2's acceptance is
@@ -9,8 +9,10 @@ size; without a seed the boot is as today. The owner chose the shape that
 day: a prebuilt installed image that grows, and a seed read from ISO 9660
 or FAT. The design note is `docs/userland/design.md`, "First boot without a
 console" (this PR's first commit). This PR is the partition table half of
-"grows"; the file system, the static address, the seed and the cloud
-image with `test-cloud` follow in their own PRs.
+"grows": the partition table and the root's pool. The static address,
+the seed and the cloud image with `test-cloud` follow in their own PRs.
+The pool's growth was planned as a second PR and joined this one when the
+CeeSafe rule's gate made each PR offset its own C (below).
 
 ## Scope and baseline
 
@@ -59,11 +61,45 @@ nothing and `root=boot-disk` found no root.
   at the link, freestanding CeeSafe having none. `install_gpt.c` is the GPT
   code alone; `cosmo-install` and `blkid` link the shared runtime.
 - **The C that stays, offset by ports** (the owner's choice, 2026-11-18):
-  init's call (+28 lines) against `hostname` ported whole
-  (`userland/system/hostname.cee`, -32); `gpt.h`'s field and comment (+4)
-  against `kernel/core/fwcfg.cee` (-22, the name built as `ksnprintf` built
-  it, truncated at 63 characters). `cee-share.py --gate`: no tree has more
+  init's calls (+29 lines) against `hostname` ported whole
+  (`userland/system/hostname.cee`, -32); `gpt.h`'s field and comment and
+  the two mount flags (+6) against `kernel/core/fwcfg.cee` (-22, the name
+  built as `ksnprintf` built it, truncated at 63 characters); `struct
+  cfs`'s one field against the dead `cfs_bit_clear`. `cee-share.py --gate`: no tree has more
   C to convert than `a22afe4e`.
+- **The pool grows** (`docs/kernel-services/filesystem/cosmofs/design.md`,
+  "Growing a member"). init mounts the root with the new
+  `COSMO_MOUNT_GROW` (`MOUNT_GROW`, a writable cosmofs mount's alone;
+  `sys_mount` refuses it elsewhere with `-EINVAL`). `cfs_members_load`
+  reads it from the mount's flags and, for a pool of one plain member
+  (no copies, no copy-state record, no spares) on a device larger than the
+  member table says, grows the member and the superblock's total to the
+  device (at most `CFS_MAX_BLOCKS`) before `layout` sizes the linear space,
+  keeping the old count in `struct cfs`'s one new field, `grown_from`. The
+  bitmap load reads only the chunks the old size had, frees every grown
+  block (the old last chunk's padding included), marks each chunk holding
+  one dirty and leaves the grown blocks out of the free-count comparison;
+  the mount commits before it returns. Line: `cosmofs: member 0 grows from
+  N to M blocks`. No format change.
+- **`statfs` counted padding** (a defect found on the way, fixed because
+  it blocks R2's acceptance: "a root file system of the disk's size").
+  cosmofs reported the pool's linear span, every member rounded up to
+  whole bitmap chunks of 32512 blocks, so `df` showed a 48891-block root
+  as 65024 blocks and the grown 245499-block root as 260096. It now sums
+  the members' blocks. `tests/host/test_cfscore.c` checks it on every
+  `statfs` round (its digest moves, the only change in what the rounds
+  see); `tools/statfs-span-probe.py --old` runs this test against main's
+  `cosmofs_core.cee` in a throwaway worktree and fails at the check, on
+  both architectures:
+
+  ```text
+  PROBE: PASS mode=old arch=x86_64 base=a22afe4e76fc: `FAIL .../tests/host/test_cfscore.c:940: rc != 0 || st.blocks == real`
+  PROBE: PASS mode=fixed arch=x86_64: test_cfscore passed
+  PROBE: PASS mode=old arch=aarch64 base=a22afe4e76fc: `FAIL .../tests/host/test_cfscore.c:940: rc != 0 || st.blocks == real`
+  PROBE: PASS mode=fixed arch=aarch64: test_cfscore passed
+  ```
+- `cfs_bit_clear`, a `static inline` in `cosmofs_internal.h` nothing
+  called, is removed.
 - **`userland/init/init.c`**: `switch_to_disk_root` runs `cosmo-grow
   --table ROOTDEV` before `unlock_root` and `check_root`.
 - **`tests/boot/install_test.py`**: stages `grow` and `grow-again`
@@ -135,6 +171,7 @@ again alone with the one-minute load at 6.96: PASS in 209.3 s,
 
 ## Limits
 
+- Only a pool of one plain member grows; a line says why another does not.
+
 - Only a table `gpt_build` wrote is moved; another is reported and left.
 - A root that is not the last partition keeps its size.
-- The file system does not grow yet (the next PR).

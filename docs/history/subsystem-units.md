@@ -3879,6 +3879,12 @@ See the [history index](README.md).
     the disk's end, backup first, and the root partition, when last, grows
     to it. The C init needs is offset by porting `hostname` and
     `kernel/core/fwcfg.c` (the CeeSafe rule's gate).
+  - The root's pool grows too: init mounts it with `COSMO_MOUNT_GROW`, and
+    a pool of one plain member takes its device's size as its member table
+    loads, committed by the mount. `statfs` counted bitmap padding as
+    capacity (a 48891-block root showed 65024); it sums the members' blocks
+    now (`tools/statfs-span-probe.py`).
   - `test-install`'s `grow` and `grow-again` stages (a copy four times as
-    long; the next boot quiet).
+    long: the table, the pool, `df`, 208 MiB written, checked clean and
+    read back at the next boot).
   - Report: `docs/audit/2026-11-18-r2-grown-disk-report.md`.
