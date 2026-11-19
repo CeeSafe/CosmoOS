@@ -83,6 +83,14 @@ The first run's `again` stage failed in the harness, not the system: the
 host key is recorded in `known_hosts` under the forwarded port, and the
 second boot forwarded a new one. It now reuses the first boot's port.
 
+Review (Codex, P1): the release job's `--out cloud/...` named a
+directory nothing created, so `qemu-img convert` would have failed on
+every tag (`Could not create 'cloud/x.qcow2.tmp': No such file or
+directory`, reproduced here). `mkcloudimage.py` now creates its output's
+directory. Run as the release job runs it, into a missing `cloud/`
+(x86-64, this tree's release image): it wrote the 256 MiB image,
+the root holding 20068 KiB with 169388 KiB free.
+
 ## Validation
 
 PENDING: branch CI (`net-login`, both architectures).

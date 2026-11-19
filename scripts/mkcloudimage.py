@@ -86,6 +86,7 @@ def main():
               f"much again: give a larger --mib", file=sys.stderr)
         return 1
     tmp = a.out + ".tmp"
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     subprocess.run(["qemu-img", "convert", "-q", "-f", "raw", "-O", "qcow2", target, tmp], check=True)
     os.replace(tmp, a.out)
     shutil.rmtree(work, ignore_errors=True)
