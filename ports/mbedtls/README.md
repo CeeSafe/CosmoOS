@@ -25,7 +25,8 @@ github.com and curl.se, then the copy in this repository's
   compiler-rt builtins: `ports/busybox/README.md`). It uses the default
   configuration with `cosmo_config.h` on top (`MBEDTLS_USER_CONFIG_FILE`):
   - Entropy comes from `getrandom(2)` through `MBEDTLS_ENTROPY_HARDWARE_ALT`
-    (`mbedtls_hardware_poll` in `ssl_client.c`), a strong source for every
+    (`mbedtls_hardware_poll` in `entropy.c`, which `ssl_client`,
+    `cosmo-fetch` and curl each link), a strong source for every
     entropy context, PSA's own included.
   - The platform source is off (`MBEDTLS_NO_PLATFORM_ENTROPY`): on a libc
     other than glibc it reads `/dev/urandom`, which CosmoOS does not have.

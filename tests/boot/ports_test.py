@@ -14,6 +14,10 @@ scripts/publish-repo.py does) over HTTPS from 127.0.0.1 (the guest's
 
   a. `pkg update && pkg install nano` from that repository, the package
      fetched from the server.
+  c. `pkg install curl`; `curl -fsS` of a file the harness serves over HTTPS
+     (the test CA in the system's bundle, which curl reads) gives its
+     bytes, and curl refuses the same file from a server whose certificate
+     another CA signed (exit 60), with nothing requested from that server.
   b. nano under a terminal: an ssh session (`ssh -tt` under a host pty,
      pty_keys, TERM=xterm-256color) runs `nano FILE`, types a line,
      writes it out (^O, Enter) and leaves (^X);
@@ -50,7 +54,7 @@ PKGBUILD = os.path.join(ROOT, "tools", "pkgbuild.py")
 DAY = 86400
 # The programs the ports install: a call the Linux personality lacks, made by
 # one of them, fails the test (z). The base system's are reported, not judged.
-PORT_PROGRAMS = {"nano"}
+PORT_PROGRAMS = {"nano", "curl"}
 
 
 def utc(t):
@@ -166,6 +170,30 @@ def stage_nano(work, results, port):
                    f"the file holds {line!r}")
 
 
+def stage_curl(b, results, www, server, untrusted):
+    """c: curl over HTTPS, and a certificate it must refuse."""
+    body = os.urandom(48).hex() + "\n"
+    with open(os.path.join(www, "hello.txt"), "w") as f:
+        f.write(body)
+    out = b.status("pkg install curl", "inst")
+    need(out, r"^inst=0$", "pkg install curl")
+    need(out, r"^pkg: installing curl-8\.23\.0 \(\d+ files?\)$", "curl installed")
+    out = b.status(f"curl -fsS https://10.0.2.2:{server.port}/hello.txt -o /tmp/hello.txt && cat /tmp/hello.txt",
+                   "get")
+    need(out, r"^get=0$", "curl -fsS over HTTPS from the harness")
+    need(out, rf"^{body.strip()}$", "the served file's bytes")
+    if "/hello.txt" not in server.paths():
+        raise Fail(f"the server saw {server.paths()}; curl did not fetch /hello.txt from it")
+    out = b.status(f"curl -fsS https://10.0.2.2:{untrusted.port}/hello.txt -o /tmp/bad.txt", "bad")
+    need(out, r"^bad=60$", "curl refusing a certificate another CA signed (exit 60)")
+    if untrusted.requests:
+        raise Fail(f"the untrusted server received {untrusted.paths()}; nothing should reach it")
+    out = b.run("curl --version | head -n 1")
+    ver = need(out, r"^(curl 8\.23\.0 .*)$", "curl --version").group(1)
+    results.append(f"c. pkg install curl; curl -fsS over HTTPS fetched the served file byte for byte; a certificate "
+                   f"from another CA refused (exit 60, no request reached that server); {ver!r}")
+
+
 def stage_ports(args, results, inst):
     work = args.workdir
     tls, www = os.path.join(work, "tls"), os.path.join(work, "www")
@@ -174,6 +202,7 @@ def stage_ports(args, results, inst):
     shutil.copy(os.path.join(tls, "ca.pem"), os.path.join(www, "testca.pem"))
     publish(www, args.repo, args.sign_key, 1)
     server = tlstest.Server(www, tls, "server")
+    untrusted = tlstest.Server(www, tls, "untrusted")
     plain = tlstest.Server(www)
     port = free_port()
     env = {"QEMU_DISKS": "boot", "QEMU_NET_HOSTFWD": f"tcp:127.0.0.1:{port}-:22"}
@@ -194,6 +223,8 @@ def stage_ports(args, results, inst):
         if "/ports/nano-9.3.cpk" not in server.paths():
             raise Fail(f"the server saw {server.paths()}; nano-9.3.cpk was not fetched from it")
         results.append(f"a. pkg update && pkg install nano: nano-9.3.cpk fetched over HTTPS, {files} files installed")
+
+        stage_curl(b, results, www, server, untrusted)
 
         login_key(work, b)
         waited = ssh_wait(work, port, strict=False)
@@ -230,6 +261,7 @@ def stage_ports(args, results, inst):
         raise
     finally:
         server.shutdown()
+        untrusted.shutdown()
         plain.shutdown()
 
 

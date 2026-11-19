@@ -865,7 +865,7 @@ $(HOST_OUT)/cosmo-fetch: $(ROOT)/ports/mbedtls/cosmo-fetch.c $(TLS_COMMON) $(HOS
 	$(call log,HOSTCC,$@)
 	$(Q)$(HOST_CC) -std=gnu11 -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined \
 		-Wall -Wextra -Werror -I$(ROOT)/ports/mbedtls -I$(HOST_MBEDTLS)/include \
-		-DMBEDTLS_USER_CONFIG_FILE='<cosmo_config.h>' $< $(ROOT)/ports/mbedtls/tls_common.c $(HOST_MBEDTLS_LIBS) \
+		-DMBEDTLS_USER_CONFIG_FILE='<cosmo_config.h>' $< $(ROOT)/ports/mbedtls/tls_common.c $(ROOT)/ports/mbedtls/entropy.c $(HOST_MBEDTLS_LIBS) \
 		$(HOST_LDFLAGS) -o $@
 
 .PHONY: host-test-fetch

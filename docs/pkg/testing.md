@@ -160,6 +160,7 @@ Justify), with `TERM=xterm-256color`.
 | Step | What | Required |
 |---|---|---|
 | a | `pkg update && pkg install nano` | exit 0; `pkg: fetching nano-9.3.cpk from ports`; `pkg: installing nano-9.3 (N files)`; the server saw the package fetched |
+| c | `pkg install curl`; `curl -fsS` of a file the harness made for the run, over HTTPS; the same from a server whose certificate another CA signed | installed; the file's bytes, and the server saw the request; exit 60 from the other server, which received no request |
 | b | `nano /root/ports-note.txt` in the session: a line typed, ^O and Enter, ^X; then `cat` of the file | nano's title bar (`GNU nano 9.3`), `Wrote 2 lines`; the file holds the line (read again over a second ssh command) |
 | z | a probe the target's `tcc` compiles calls `inotify_init1`, which the personality lacks; then the kernel's `unimplemented system call` lines | the probe's line (`pid N (unimpl)`) is there, so the check can see one; no line names a program the ports install (`PORT_PROGRAMS`); the base system's lines are listed in the result, not judged |
 
