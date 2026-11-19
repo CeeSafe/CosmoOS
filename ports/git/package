@@ -1,0 +1,28 @@
+# git: the package (ports/git/README.md; docs/pkg/design.md, "Cross-built ports").
+# Paths are in the staged install git.mk makes, and are installed at the same path.
+name: git
+version: 2.56.1
+summary: the Git version control system (HTTPS by libcurl and mbedTLS)
+file: usr/bin/git 0755
+# HTTP(S) remotes: git runs git-remote-<scheme>. git-remote-https is a copy
+# of git-remote-http (git.mk), since packages carry regular files only.
+file: usr/libexec/git-core/git-remote-http 0755
+file: usr/libexec/git-core/git-remote-https 0755
+# The commands git still keeps as shell scripts, and what they include.
+file: usr/libexec/git-core/git-sh-setup 0644
+file: usr/libexec/git-core/git-sh-i18n 0644
+file: usr/libexec/git-core/git-sh-i18n--envsubst 0755
+file: usr/libexec/git-core/git-submodule 0755
+file: usr/libexec/git-core/git-merge-octopus 0755
+file: usr/libexec/git-core/git-merge-one-file 0755
+file: usr/libexec/git-core/git-merge-resolve 0755
+file: usr/libexec/git-core/git-mergetool 0755
+file: usr/libexec/git-core/git-mergetool--lib 0644
+file: usr/libexec/git-core/mergetools/ 0644
+file: usr/libexec/git-core/git-difftool--helper 0755
+file: usr/libexec/git-core/git-filter-branch 0755
+file: usr/libexec/git-core/git-quiltimport 0755
+file: usr/libexec/git-core/git-request-pull 0755
+file: usr/libexec/git-core/git-web--browse 0755
+# What git init copies into a new repository.
+file: usr/share/git-core/templates/ 0644

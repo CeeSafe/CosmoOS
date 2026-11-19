@@ -205,6 +205,113 @@ added by `index` when the files exist.
 directory under `ports/` and then `index`; the Makefile adds every file
 in the repository to the boot archive as `repo/<file>`.
 
+## Cross-built ports (roadmap 1.3 R3)
+
+R3 packages the software a server needs: OpenSSH (`ssh`, `scp`, `sftp`,
+`ssh-keygen`, and `sshd`), curl, git and nano. Each is built on the host
+from a pinned upstream release, the way BusyBox and dropbear are, and
+installed with `pkg install` from the network repository. None of them is
+built on the target. That was roadmap 1.2's A track, and it is not 1.3's.
+
+**The build.** Each port is a `ports/<name>/<name>.mk` recipe. It
+fetches the source through `scripts/fetch-pinned.py` (the version and
+SHA-256 are in the port's README) and configures it for
+`<arch>-linux-musl` with BusyBox's `cc` wrapper. Every program is linked
+statically against the musl sysroot and compiler-rt builtins the BusyBox
+port builds, with `-ffile-prefix-map` set. A package therefore requires no
+shared library and depends on nothing the base system might upgrade under
+it. The libraries a port needs are built the same way and linked in. They
+are not packages of their own:
+
+| Port | Package(s) | Linked in |
+|---|---|---|
+| zlib | none (a library) | |
+| ncurses | none (a library); `xterm-256color`, `vt100` and `linux` compiled in as fallbacks, so there is no terminfo tree | |
+| nano | `nano` | ncurses |
+| curl | `curl` | mbedTLS (`ports/mbedtls/`), zlib |
+| git | `git` (`git`, and `git-remote-https` under `/usr/libexec/git-core`) | curl's library, mbedTLS, zlib |
+| OpenSSH | `openssh-client` (`ssh`, `scp`, `sftp`, `ssh-keygen`); `openssh-server` (`sshd` and its helpers) | its own crypto (`--without-openssl`), zlib |
+
+TLS is mbedTLS, as it is for `wget` and `cosmo-fetch`. It checks against
+the same bundle, `/etc/ssl/certs/ca-certificates.crt`, so a port has no
+trust store of its own. OpenSSH is built without OpenSSL. Its own code
+provides Ed25519, ChaCha20-Poly1305, AES-CTR and GCM, and the
+Curve25519 and ML-KEM key exchanges. RSA and ECDSA keys are not
+available.
+
+**The package.** A recipe stages its install into a directory beside
+`$(OUT)` (`make DESTDIR=...`). `ports/<name>/package` then names what the
+package takes from that stage:
+
+```text
+name: curl
+version: 8.17.0
+summary: transfers data from or to a server (HTTPS by mbedTLS)
+depends: openssh-client             # repeatable, as in a recipe
+file: usr/bin/curl 0755             # repeatable: a path in the stage and its mode
+file: usr/share/man/man1/curl.1 0644
+```
+
+`pkgbuild.py pack --package FILE --root STAGE` makes the `.cpk` from it.
+This is the same archive `build` writes, with the same manifest,
+signature and byte-for-byte reproducibility. Nothing is read through a
+symbolic link, whether in a path's last component or in any directory
+on the way, so a link in a stage cannot put a file from outside it into
+a signed package. The file is named `package`
+rather than `port` so that `make ports`, which globs `ports/*/port`,
+does not pick it up. `pack`'s command-line form, which `busybox-dyn` and
+`cosmo-upgrade` use, stays as it is.
+
+**The ports repository.** `make server-ports` builds every
+`ports/*/package` into `$(OUT)/pkg/server/` and indexes it there, signed
+with the package key. It is not added to the boot archive, which the
+loader reads into memory on every boot. The release set gains
+`cosmoos-ARCH-ports.tar`, that directory as a tar. Two builds must make
+it byte for byte the same, as they must the rest of the set.
+`scripts/publish-repo.py` copies its `.cpk` files into `repo/ARCH` beside
+the boot archive's and indexes them together. An installed system's
+`repos.conf` already names that directory, so neither `pkg` nor the
+installer changes. The live system's repository is still `/boot/repo`
+only, so these packages are installed on an installed system.
+
+**sshd in place of dropbear.** dropbear stays the base system's ssh
+server. `openssh-server` ships `/etc/svc/sshd` and its start script,
+`/etc/ssh/start`. The script makes the Ed25519 host key at its first
+run, as dropbear's does, then runs `svc stop dropbear` and execs
+`sshd -D -e` on port 22, with the privilege separation user `sshd` and
+`/var/empty`. The service file says `after dropbear`, so at boot dropbear
+starts and sshd then takes its place. After `pkg install openssh-server`,
+`svc start sshd` makes the switch without a reboot; `pkg` runs no
+scripts, so it does not do this itself. `pkg remove openssh-server`
+removes `/etc/svc/sshd` with the package, and dropbear serves again after
+the next boot or `svc start dropbear`. Neither `pkg` nor `svc` gains a
+key for this. `sshd_config` is the package's, written for this system:
+public-key logins only, root by key (as dropbear allows), and the `sftp`
+subsystem `sftp-server` from the base system.
+
+**What the Linux personality lacks.** Anything a port needs that CosmoOS
+lacks is found by running it. `lx_unknown` logs the first eight
+unimplemented calls of each process, and `make test-ports` fails on
+those lines. Each call added is listed in R3's report with its PR. Known
+before any build: `setsockopt` refuses every option (backlog LX-8), and
+curl and OpenSSH both set `TCP_NODELAY` and `SO_KEEPALIVE`. New kernel
+code is CeeSafe (roadmap 1.3).
+
+**The acceptance test (`make test-ports`).**
+`tests/boot/ports_test.py` builds on `pkgnet_test.py`. It installs the
+system, boots the installed disk, and serves the ports repository
+together with the boot archive's over HTTPS from the host, with the test
+certificate authority, as `pkgnet_test.py` does. It then runs, on both
+architectures:
+- `pkg install nano curl git openssh-client openssh-server`;
+- `nano` editing a file under the harness's terminal (`ssh -tt` over a
+  host pty, `net_login_test.py`'s `ssh_pty_session`);
+- `curl` fetching over HTTPS from the host's server, and a certificate
+  it must refuse;
+- `git clone` over HTTPS from the host, and a commit in the clone;
+- `svc start sshd`, a key login to sshd (its version string, not
+  dropbear's), and `scp` both ways.
+
 ## `pkg` on the target (`pkg/`)
 
 ```text

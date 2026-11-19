@@ -143,8 +143,13 @@ ifeq ($(filter $(VERIFY_BOOT),0 1),)
 $(error VERIFY_BOOT must be 0 or 1, got '$(VERIFY_BOOT)')
 endif
 
-# Output tree. Never inside the source directories.
-OUT ?= $(ROOT)/out/$(ARCH)-$(BUILD)$(if $(filter 0,$(VERIFY_BOOT)),-noverify)
+# Output tree. Never inside the source directories. SELFTEST changes the
+# compiler's flags, and the objects do not record them, so a build whose
+# SELFTEST is not its BUILD's default gets its own tree too (make
+# test-ports builds BUILD=debug SELFTEST=0).
+SELFTEST_SUFFIX := $(if $(filter debug-0,$(BUILD)-$(SELFTEST)),-noselftest)$(if \
+	$(filter release-1,$(BUILD)-$(SELFTEST)),-selftest)
+OUT ?= $(ROOT)/out/$(ARCH)-$(BUILD)$(SELFTEST_SUFFIX)$(if $(filter 0,$(VERIFY_BOOT)),-noverify)
 
 # V=1 shows full command lines.
 V ?= 0

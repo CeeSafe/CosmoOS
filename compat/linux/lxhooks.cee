@@ -36,6 +36,7 @@ extern "C" {
         space: *mut vm_space;
         linux: *mut linux_state;
         dumpable: AtomicU8;
+        name: [u8; 32];
     }
     struct elf_info {
         entry: u64;
@@ -386,12 +387,14 @@ unsafe fn prctl(a: *mut syscall_args) -> i64 {
     return -EINVAL as i64;
 }
 
-/// The handler of a number the table has no call for: -ENOSYS, the first eight of a process's said in the log.
+/// The handler of a number the table has no call for: -ENOSYS, the first eight of a process's said in the log with
+/// its name, so a test can tell which program wanted it (roadmap 1.3 R3, make test-ports).
 ///
 /// Safety: the dispatcher's.
 @export("lx_unknown")
 unsafe fn unknown(a: *mut syscall_args) -> i64 {
-    let p = Ptr.toBorrow(process_current() as *process);
+    let cur = process_current() as *mut process;
+    let p = Ptr.toBorrow(cur as *process);
     if (!p.linux.isNull()) {
         let ls = Ptr.toBorrowMut(p.linux);
         let seen = ls.unknown_syscalls;
@@ -399,8 +402,9 @@ unsafe fn unknown(a: *mut syscall_args) -> i64 {
         if (seen < 8) {
             klog(
                 KLOG_DEBUG,
-                "linux: pid %u: unimplemented system call %llu\0".ptr as *CChar,
+                "linux: pid %u (%s): unimplemented system call %llu\0".ptr as *CChar,
                 p.pid,
+                borrow mut Ptr.toBorrowMut(cur).name as *mut [u8; 32] as *mut CChar,
                 Ptr.toBorrow(a as *syscall_args).nr,
             );
         }

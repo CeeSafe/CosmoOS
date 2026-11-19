@@ -1,0 +1,5 @@
+# curl: the package (ports/curl/README.md; docs/pkg/design.md, "Cross-built ports").
+name: curl
+version: 8.23.0
+summary: transfers data from or to a server (HTTPS by mbedTLS)
+file: usr/bin/curl 0755

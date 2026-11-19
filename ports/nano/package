@@ -1,0 +1,8 @@
+# nano: the package (ports/nano/README.md; docs/pkg/design.md, "Cross-built ports").
+# Paths are in the staged install nano.mk makes, and are installed at the same path.
+name: nano
+version: 9.3
+summary: GNU nano, a small text editor
+file: usr/bin/nano 0755
+file: usr/share/nano/ 0644
+file: etc/nanorc 0644

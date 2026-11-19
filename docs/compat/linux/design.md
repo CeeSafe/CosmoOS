@@ -663,7 +663,8 @@ phase added `ENOPROTOOPT` 92), so results pass through unchanged.
 implementation holds `lx_unknown` (filled in once, from
 `linux_process_init`, before the first Linux process can make a call):
 `-ENOSYS`, `unknown_syscalls++`, the first eight per process logged at
-DEBUG (`linux: pid N: unimplemented system call NR`), so porting work
+DEBUG (`linux: pid N (NAME): unimplemented system call NR`, NAME the
+process's, since roadmap 1.3 R3), so porting work
 sees what a program wanted. A number at or above 512 never reaches the
 table: the dispatcher's bounds check returns `-ENOSYS` and logs
 `syscall: pid N unknown number NR (linux)`. The numbers the personality

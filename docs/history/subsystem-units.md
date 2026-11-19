@@ -3919,3 +3919,16 @@ See the [history index](README.md).
     root), again with a FAT seed (nothing applied twice), and with no seed.
   - R2 ticked in `docs/roadmap-1.3.md`.
   - Report: `docs/audit/2026-11-19-r2-cloud-report.md`.
+- **R3, first PR: cross-built ports as packages; nano, curl and git (2026-11-19, roadmap 1.3).**
+  - `pkgbuild.py pack --package FILE --root STAGE` and `make server-ports`:
+    ports built statically from pinned upstream archives become a signed
+    repository of their own (`$(OUT)/pkg/server`), not in the boot archive.
+  - zlib 1.4 and ncurses 6.6 (linked in); the packages nano 9.3, curl
+    8.23.0 (mbedTLS) and git 2.56.1 (libcurl).
+  - `make test-ports` (`tests/boot/ports_test.py`; CI job `ports`, debug
+    without self-tests): installed with `pkg` over HTTPS on an installed
+    system; nano under an ssh pty, curl over HTTPS and a refused CA, git
+    clone, commit and fsck; no missing Linux call from a port (the line now
+    names the process). Backlog LX-26, LX-27 (the base system's `sendfile`
+    and `execveat`), LX-28 (no inotify).
+  - Report: `docs/audit/2026-11-19-r3-ports-report.md`.

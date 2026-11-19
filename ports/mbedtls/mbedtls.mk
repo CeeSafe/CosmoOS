@@ -25,7 +25,7 @@ MBEDTLS_LIBS   := $(MBEDTLS_DIR)/src/library/libmbedtls.a $(MBEDTLS_DIR)/src/lib
 SSL_CLIENT_ELF := $(MBEDTLS_DIR)/ssl_client
 COSMO_FETCH_ELF := $(MBEDTLS_DIR)/cosmo-fetch
 # The certificate checks both programs make (tls_common.c).
-TLS_COMMON := $(ROOT)/ports/mbedtls/tls_common.c $(ROOT)/ports/mbedtls/tls_common.h
+TLS_COMMON := $(ROOT)/ports/mbedtls/tls_common.c $(ROOT)/ports/mbedtls/tls_common.h $(ROOT)/ports/mbedtls/entropy.c
 # The library's default configuration, then ours (cosmo_config.h).
 MBEDTLS_CFLAGS := -O2 -ffile-prefix-map=$(MBEDTLS_DIR)=mbedtls -ffile-prefix-map=$(ROOT)=/cosmo \
 	-I$(ROOT)/ports/mbedtls -DMBEDTLS_USER_CONFIG_FILE='<cosmo_config.h>'
@@ -53,7 +53,7 @@ $(MBEDTLS_LIBS) &: $(MBEDTLS_TAR) $(BB_LIBC) $(BB_BUILTINS) $(BB_CC) $(ROOT)/por
 $(SSL_CLIENT_ELF) $(COSMO_FETCH_ELF): $(MBEDTLS_DIR)/%: $(ROOT)/ports/mbedtls/%.c $(TLS_COMMON) $(MBEDTLS_LIBS)
 	$(call log,CC,$* $(BB_TARGET))
 	$(Q)$(BB_CC) $(MBEDTLS_CFLAGS) -Wall -Wextra -Werror -I$(MBEDTLS_DIR)/src/include -o $@.unstripped $< \
-		$(ROOT)/ports/mbedtls/tls_common.c $(MBEDTLS_LIBS)
+		$(ROOT)/ports/mbedtls/tls_common.c $(ROOT)/ports/mbedtls/entropy.c $(MBEDTLS_LIBS)
 	$(Q)$(OBJCOPY) --strip-all --remove-section=.note --remove-section=.comment $@.unstripped $@
 
 .PHONY: ssl_client cosmo-fetch

@@ -257,8 +257,8 @@ only; on `ARCH=aarch64` the personality has no system-call table yet,
 line. To try a Linux program by hand: build
 it `-static` with musl, add a `tests/linux/<name>=<path>` archive entry
 (or copy it onto the cosmofs disk), boot, and run it from the shell;
-unimplemented calls show up as `linux: pid N: unimplemented system call
-NR` in the debug log.
+unimplemented calls show up as `linux: pid N (NAME): unimplemented system
+call NR` in a debug kernel's log.
 
 ## Variables
 

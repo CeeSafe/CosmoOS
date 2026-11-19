@@ -7,6 +7,7 @@
   pkgbuild.py publish --index INDEX --sign-key KEY --serial N [--published T] [--days D]
                       [--only FILE.cpk ...] [--input-pub PUB] --out INDEX
   pkgbuild.py pack  --name N --version V --summary S --file DEST=SRC [--file ...] --sign-key KEY --out F.cpk
+  pkgbuild.py pack  --package FILE --root STAGE --sign-key KEY --out F.cpk|REPO-DIR
 
 A recipe (`port`) is `key: value` lines: name, version, summary, prefix,
 depends (repeatable), program (destination then C sources; compiled with
@@ -297,19 +298,114 @@ def cmd_build(args):
     return 0
 
 
-def pack(name, version, summary, files, key_path):
+def pack(name, version, summary, files, key_path, depends=()):
     """A package of built files: `files` is [(destination, mode, data)],
     destinations relative to /. The same archive cmd_build makes (its
     provides and requires read from the ELF files)."""
     if not NAME_RE.match(name) or not VERSION_RE.match(version):
         die(f"bad name or version '{name}' '{version}'")
-    rec = {"name": name, "version": version, "summary": summary, "depends": []}
+    rec = {"name": name, "version": version, "summary": summary, "depends": list(depends)}
     ordered = sorted((dest_path("/", d), mode, data) for d, mode, data in files)
+    paths = [p for p, _, _ in ordered]
+    if len(set(paths)) != len(paths):
+        die(f"{name}: a file is listed twice")
     manifest = manifest_text(rec, ordered)
     return sign(tar_archive([("+MANIFEST", 0o644, manifest)] + ordered), key_path)
 
 
+def parse_package(path):
+    """A cross-built port's `package` file (docs/pkg/design.md, "Cross-built
+    ports"): name, version, summary, depends (repeatable) as in a recipe, and
+    `file: PATH MODE` (repeatable), a path in the port's staged install that
+    the package installs at the same path under /. `file: DIR/ MODE` takes
+    every regular file under DIR, each with MODE."""
+    rec = {"depends": [], "file": []}
+    with open(path) as f:
+        for lineno, raw in enumerate(f, 1):
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if ":" not in line:
+                die(f"{path}:{lineno}: expected 'key: value'")
+            key, value = (s.strip() for s in line.split(":", 1))
+            if key in ("name", "version", "summary"):
+                rec[key] = value
+            elif key == "depends":
+                if not DEPEND_RE.match(value):
+                    die(f"{path}:{lineno}: bad dependency '{value}'")
+                rec["depends"].append(re.sub(r"\s+", " ", value))
+            elif key == "file":
+                parts = value.split()
+                if len(parts) != 2 or not re.fullmatch(r"0?[0-7]{3,4}", parts[1]):
+                    die(f"{path}:{lineno}: file needs 'path mode'")
+                rec["file"].append((parts[0], int(parts[1], 8)))
+            else:
+                die(f"{path}:{lineno}: unknown key '{key}'")
+    for key in ("name", "version", "summary"):
+        if key not in rec:
+            die(f"{path}: missing '{key}'")
+    if not rec["file"]:
+        die(f"{path}: no file")
+    return rec
+
+
+def staged_files(rec, root, path):
+    """The (destination, mode, data) of each `file:` line, read from root.
+    Nothing is read through a symbolic link, in the last component or in
+    any directory on the way: a path whose resolved form is not the stage's
+    own path to it is refused, so a link in the stage cannot put a file
+    from outside it into a signed package."""
+    real_root = os.path.realpath(root)
+
+    def in_stage(rel):
+        """The path of rel under root if no component of it is a link; else None."""
+        want = os.path.normpath(os.path.join(real_root, rel))
+        return want if os.path.realpath(want) == want and want.startswith(real_root + os.sep) else None
+
+    files = []
+    for rel, mode in rec["file"]:
+        dest_path("/", rel.rstrip("/"))    # the same refusals as the destination itself
+        if rel.endswith("/"):
+            src = in_stage(rel.rstrip("/"))
+            if src is None or not os.path.isdir(src):
+                die(f"{path}: {rel} is not a directory in {root} (or reaches it through a symbolic link)")
+            found = []
+            for dirpath, dirnames, filenames in os.walk(src):   # os.walk does not descend into linked directories
+                dirnames.sort()
+                for fn in sorted(filenames):
+                    r = os.path.relpath(os.path.join(dirpath, fn), real_root)
+                    full = in_stage(r)
+                    if full is not None and os.path.isfile(full):
+                        found.append((r, full))
+            if not found:
+                die(f"{path}: {rel} holds no file")
+            for r, full in found:
+                with open(full, "rb") as f:
+                    files.append((r, mode, f.read()))
+        else:
+            src = in_stage(rel)
+            if src is None or not os.path.isfile(src):
+                die(f"{path}: {rel} is not a regular file in {root} (or reaches it through a symbolic link)")
+            with open(src, "rb") as f:
+                files.append((rel, mode, f.read()))
+    return files
+
+
 def cmd_pack(args):
+    if args.package:
+        if args.name or args.version or args.summary or args.file:
+            die("--package takes the name, version, summary and files from the package file")
+        if not args.root:
+            die("--package needs --root")
+        rec = parse_package(args.package)
+        files = staged_files(rec, args.root, args.package)
+        out = args.out
+        if os.path.isdir(out):    # a repository directory: the package's usual name in it
+            out = os.path.join(out, f"{rec['name']}-{rec['version']}.cpk")
+        write_atomic(out, pack(rec["name"], rec["version"], rec["summary"], files, args.sign_key, rec["depends"]))
+        return 0
+    if not (args.name and args.version and args.summary and args.file):
+        die("pack needs --package, or --name, --version, --summary and --file")
     files = []
     for spec in args.file:
         dest, _, src = spec.partition("=")
@@ -468,10 +564,12 @@ def main(argv):
     b.add_argument("--test-fixtures", action="store_true")
     b.set_defaults(fn=cmd_build)
     pk = sub.add_parser("pack")
-    pk.add_argument("--name", required=True)
-    pk.add_argument("--version", required=True)
-    pk.add_argument("--summary", required=True)
-    pk.add_argument("--file", action="append", required=True)
+    pk.add_argument("--package", help="a cross-built port's package file (with --root, in place of the four below)")
+    pk.add_argument("--root", help="the staged install --package's paths are read from")
+    pk.add_argument("--name")
+    pk.add_argument("--version")
+    pk.add_argument("--summary")
+    pk.add_argument("--file", action="append")
     pk.add_argument("--sign-key", required=True)
     pk.add_argument("--out", required=True)
     pk.set_defaults(fn=cmd_pack)

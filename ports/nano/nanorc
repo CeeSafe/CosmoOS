@@ -1,0 +1,5 @@
+## /etc/nanorc, the nano package's (ports/nano/README.md). The package owns
+## this file and an upgrade replaces it: put your own settings in ~/.nanorc.
+
+## Syntax colouring for the languages nano knows.
+include "/usr/share/nano/*.nanorc"
