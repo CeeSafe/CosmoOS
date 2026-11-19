@@ -128,7 +128,15 @@ ceesafec 0.57.1 and a fresh `out/`, one architecture after the other:
 | `test-smp2`, `test-chaos`, `test-harness-retry` | 244.3 / 241.6 / 246.0 s | 289.2 / 308.9 / 300.3 s |
 | release `test` | 18.9 s | 23.4 s |
 
-Branch CI: PENDING.
+The review's one finding (Codex, P2): `pack --package` refused a
+symbolic link only as the named file, so a linked parent directory in
+the stage could put a file from outside it into a signed package.
+`339bae2e` refuses any path whose resolved form differs from its plain
+form under the stage; `tests/host/test_pkgbuild_pack.py`'s linked-parent
+case fails on the old code and passes now.
+
+Branch CI on `339bae2e`: run 44602522714, PASS (the `ports` job on both
+architectures).
 
 ## Limits
 
