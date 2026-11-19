@@ -8,7 +8,7 @@ The design is `docs/userland/design.md`, "The seed"; the owner chose, on
 
 The SSH key, the host name and the network come from a cloud-init NoCloud
 seed (`cidata`) attached as a disk. Before this PR nothing read one. The
-base is the second PR's head (`a986037d`), the address a seed's
+base is the second PR's head (#532, `b1370163`), the address a seed's
 `network-config` sets going through its `IPV4_SET`.
 
 ## What changed
@@ -57,7 +57,27 @@ nothing again and sets the address again, and no seed says nothing.
 
 ## Validation
 
-PENDING: the matrix on `9b198db6`, both architectures.
+`make matrix` on both architectures on the other machine, in the CI image
+with the pinned ceesafec 0.57.1 and a fresh `out/`. The first run, on
+`9b198db6`, failed `host-test` on both: `test_seed.c` called `fseeko`,
+which glibc does not declare under strict C (the Mac's libc does). It now
+uses `fseek` and `ftell` with a range check; a seed is small. The second
+run was on `0c2b9b8f`, which has this PR's code on the second PR's code
+before that PR's review fixes:
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.8 / 239.2 / 245.4 s | 276.8 / 284.5 / 307.8 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 246.7 / 241.5 / 244.7 s | 284.0 / 308.3 / 303.2 s |
+| release `test` | 18.9 s | 23.4 s |
+
+On the rebased tree, with the second PR's fixes, the next PR's `make
+test-cloud` passed on both architectures on the Mac (that PR's report).
+
+Branch CI: see the pull request.
 
 ## Limits
 
