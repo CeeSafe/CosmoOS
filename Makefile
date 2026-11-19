@@ -78,6 +78,7 @@ include $(ROOT)/ports/zlib/zlib.mk
 include $(ROOT)/ports/ncurses/ncurses.mk
 include $(ROOT)/ports/nano/nano.mk
 include $(ROOT)/ports/curl/curl.mk
+include $(ROOT)/ports/git/git.mk
 include $(ROOT)/tools/clang-eval/clang.mk
 include $(ROOT)/userland/userland.mk
 include $(ROOT)/pkg/pkg.mk

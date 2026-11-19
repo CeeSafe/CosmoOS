@@ -161,12 +161,17 @@ Justify), with `TERM=xterm-256color`.
 |---|---|---|
 | a | `pkg update && pkg install nano` | exit 0; `pkg: fetching nano-9.3.cpk from ports`; `pkg: installing nano-9.3 (N files)`; the server saw the package fetched |
 | c | `pkg install curl`; `curl -fsS` of a file the harness made for the run, over HTTPS; the same from a server whose certificate another CA signed | installed; the file's bytes, and the server saw the request; exit 60 from the other server, which received no request |
+| g | `pkg install git`; `git clone` over HTTPS of a two-commit repository the harness makes and serves as files (git's dumb HTTP protocol); a commit in the clone; `git fsck` | installed; the README and head commit the served repository's, 2 commits; then 3, the new subject, fsck clean |
 | b | `nano /root/ports-note.txt` in the session: a line typed, ^O and Enter, ^X; then `cat` of the file | nano's title bar (`GNU nano 9.3`), `Wrote 2 lines`; the file holds the line (read again over a second ssh command) |
 | z | a probe the target's `tcc` compiles calls `inotify_init1`, which the personality lacks; then the kernel's `unimplemented system call` lines | the probe's line (`pid N (unimpl)`) is there, so the check can see one; no line names a program the ports install (`PORT_PROGRAMS`); the base system's lines are listed in the result, not judged |
 
 The first run (2026-11-19, x86-64) listed two calls of the base system's:
 `cat 40` (`sendfile`) and `dropbear 322` (`execveat`), backlog LX-26 and
-LX-27.
+LX-27; on AArch64 the same two, `cat 71` and `dropbear 281`.
+
+Each command of the ports boot has a budget of its own, 360 s
+(`Boot.per_command`): `pkg install git`, 15 MiB fetched over HTTPS and
+verified, took 146 s on x86-64 under TCG with the debug kernel.
 
 ## The interactive harness
 

@@ -18,6 +18,10 @@ scripts/publish-repo.py does) over HTTPS from 127.0.0.1 (the guest's
      (the test CA in the system's bundle, which curl reads) gives its
      bytes, and curl refuses the same file from a server whose certificate
      another CA signed (exit 60), with nothing requested from that server.
+  g. `pkg install git`; `git clone` over HTTPS of a repository the harness
+     made for the run (two commits, served as files: git's dumb HTTP
+     protocol) gives its files and history; a commit in the clone makes the
+     third; `git fsck` finds nothing wrong.
   b. nano under a terminal: an ssh session (`ssh -tt` under a host pty,
      pty_keys, TERM=xterm-256color) runs `nano FILE`, types a line,
      writes it out (^O, Enter) and leaves (^X);
@@ -54,7 +58,7 @@ PKGBUILD = os.path.join(ROOT, "tools", "pkgbuild.py")
 DAY = 86400
 # The programs the ports install: a call the Linux personality lacks, made by
 # one of them, fails the test (z). The base system's are reported, not judged.
-PORT_PROGRAMS = {"nano", "curl"}
+PORT_PROGRAMS = {"nano", "curl", "git", "git-remote-https", "git-remote-http"}
 
 
 def utc(t):
@@ -107,10 +111,11 @@ def pty_keys(work, port, steps, marker, timeout=120):
     out = b""
     t_end = time.monotonic() + timeout
 
-    def pump(until, secs):
+    def pump(until, secs, start=0):
+        """Read until `until` appears in what arrived from `start` on."""
         nonlocal out
         end = min(t_end, time.monotonic() + secs)
-        while time.monotonic() < end and (until is None or until not in out):
+        while time.monotonic() < end and (until is None or until not in out[start:]):
             r, _, _ = select.select([master], [], [], 0.2)
             if r:
                 try:
@@ -120,17 +125,19 @@ def pty_keys(work, port, steps, marker, timeout=120):
                 if not chunk:
                     break
                 out += chunk
-        return until is None or until in out
+        return until is None or until in out[start:]
 
     try:
         if not pump(b"# ", 30):
             raise Fail("the ssh session's shell prompt never came")
+        start = 0
         for keys, wait in steps:
+            start = len(out)   # what a step waits for must come after its keys
             os.write(master, keys)
-            if wait is not None and not pump(wait, 30):
+            if wait is not None and not pump(wait, 30, start):
                 raise Fail(f"after typing {keys!r}: no {wait!r} on the terminal within 30 s")
             pump(None, 0.5)
-        pump(("\n" + marker).encode(), max(1.0, t_end - time.monotonic()))
+        pump(("\n" + marker).encode(), max(1.0, t_end - time.monotonic()), start)
         os.write(master, b"exit\r")
         try:
             p.wait(timeout=20)
@@ -155,7 +162,7 @@ def stage_nano(work, results, port):
         (line.encode() + b"\r", None),
         (b"\x0f", b"Write to File"),      # ^O
         (b"\r", b"Wrote 2 lines"),        # Enter: the name nano offers
-        (b"\x18", None),                  # ^X, nothing unsaved
+        (b"\x18", b"# "),                 # ^X, nothing unsaved: the shell's prompt again, before typing on
         (f"cat {note}; echo nano-done=$?\r".encode(), None),
     ], "nano-done=")
     with open(os.path.join(work, "nano-session.txt"), "w") as f:   # the terminal's bytes, for a failure
@@ -194,6 +201,64 @@ def stage_curl(b, results, www, server, untrusted):
                    f"from another CA refused (exit 60, no request reached that server); {ver!r}")
 
 
+def host_git(*argv, cwd=None):
+    env = dict(os.environ, GIT_AUTHOR_NAME="ports test", GIT_AUTHOR_EMAIL="ports@test.invalid",
+               GIT_COMMITTER_NAME="ports test", GIT_COMMITTER_EMAIL="ports@test.invalid",
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    r = subprocess.run(["git"] + list(argv), cwd=cwd, env=env, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise Fail(f"host git {' '.join(argv)}: {r.stderr.strip()[-400:]}")
+    return r.stdout
+
+
+def served_repo(work, www):
+    """A repository of two commits, made on the host and served from www as
+    files (git's dumb HTTP protocol: info/refs and the objects). Its
+    README's contents and its head commit."""
+    src = os.path.join(work, "gitsrc")
+    host_git("init", "-q", "-b", "main", src)
+    body = "made by the ports test " + os.urandom(8).hex()
+    with open(os.path.join(src, "README"), "w") as f:
+        f.write(body + "\n")
+    host_git("add", "README", cwd=src)
+    host_git("commit", "-q", "-m", "first", cwd=src)
+    with open(os.path.join(src, "second.txt"), "w") as f:
+        f.write("second\n")
+    host_git("add", "second.txt", cwd=src)
+    host_git("commit", "-q", "-m", "second", cwd=src)
+    bare = os.path.join(www, "repo.git")
+    host_git("clone", "-q", "--bare", src, bare)
+    host_git("update-server-info", cwd=bare)
+    return body, host_git("rev-parse", "HEAD", cwd=src).strip()
+
+
+def stage_git(b, results, work, www, server):
+    """g: git clone over HTTPS, a commit, fsck."""
+    body, head = served_repo(work, www)
+    out = b.status("pkg install git", "inst")
+    need(out, r"^inst=0$", "pkg install git")
+    need(out, r"^pkg: installing git-2\.56\.1 \(\d+ files?\)$", "git installed")
+    out = b.status(f"git clone -q https://10.0.2.2:{server.port}/repo.git /root/clone && cat /root/clone/README && "
+                   "git -C /root/clone rev-parse HEAD && git -C /root/clone log --oneline | wc -l", "clone")
+    need(out, r"^clone=0$", "git clone over HTTPS")
+    need(out, rf"^{re.escape(body)}$", "the clone's README")
+    need(out, rf"^{head}$", "the clone's head, the served repository's")
+    need(out, r"^\s*2$", "two commits in the clone")
+    if not any(p.startswith("/repo.git/") for p in server.paths()):
+        raise Fail(f"the server saw {server.paths()}; git did not fetch /repo.git from it")
+    out = b.status("cd /root/clone && echo 'third, made on CosmoOS' > third.txt && git add third.txt && "
+                   "git -c user.name=cosmo -c user.email=cosmo@test.invalid commit -q -m third && "
+                   "git log --oneline | wc -l && git --no-pager log -1 --format=%s && git fsck --no-progress && cd /",
+                   "commit")
+    need(out, r"^commit=0$", "git add, commit and fsck in the clone")
+    need(out, r"^\s*3$", "three commits after the commit")
+    need(out, r"^third$", "the new commit's subject")
+    out = b.run("git --version")
+    ver = need(out, r"^(git version 2\.56\.1)$", "git --version").group(1)
+    results.append(f"g. pkg install git; git clone over HTTPS (dumb protocol) gave the README and head {head[:12]} "
+                   f"(2 commits); a commit made the third; git fsck clean; {ver!r}")
+
+
 def stage_ports(args, results, inst):
     work = args.workdir
     tls, www = os.path.join(work, "tls"), os.path.join(work, "www")
@@ -209,6 +274,11 @@ def stage_ports(args, results, inst):
     b = Boot("ports", inst["target"], work, env, args.timeout)
     try:
         b.wait_prompt("the first prompt")
+        # The boot is a long run of commands, so each has a budget of its own
+        # (Boot.per_command): `pkg install git` (15 MiB fetched over HTTPS and
+        # verified) took 146 s on x86-64 under TCG with this debug kernel
+        # (2026-11-19), and AArch64 under TCG is the slower of the two.
+        b.per_command(360)
         need(b.text(), r"^init: switched to the disk root \S+ ", "the installed boot")
         out = b.status(f"wget -q -O /tmp/testca.pem http://10.0.2.2:{plain.port}/testca.pem && "
                        "cat /tmp/testca.pem >> /etc/ssl/certs/ca-certificates.crt && "
@@ -225,6 +295,7 @@ def stage_ports(args, results, inst):
         results.append(f"a. pkg update && pkg install nano: nano-9.3.cpk fetched over HTTPS, {files} files installed")
 
         stage_curl(b, results, www, server, untrusted)
+        stage_git(b, results, work, www, server)
 
         login_key(work, b)
         waited = ssh_wait(work, port, strict=False)
