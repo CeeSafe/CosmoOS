@@ -57,7 +57,9 @@ Codex on #533:
   bytes apart. Every device after the first was read from the middle of
   the record before it. It now declares every field, as `cosmo-grow.cee`
   does. The host tests do not build `cosmo-seed`; the next PR's `make
-  test-cloud` boots it with the boot disk, its two partitions and the seed.
+  test-cloud` boots it with the boot disk, its two partitions and the seed,
+  and passed on both architectures with these fixes (x86-64 27.1 s,
+  AArch64 35.1 s, every stage; the full `make host-test` passed too).
 - **P2, the instance marker after a failure.** `instance-id` was written
   even when the host name or the keys failed to apply, so the next boot of
   the same instance applied nothing. Now the per-instance steps run with
