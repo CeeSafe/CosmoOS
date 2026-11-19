@@ -1,0 +1,12 @@
+# openssh-client: the package (ports/openssh/README.md, "The packages").
+# Paths are in the staged install openssh.mk makes, and are installed at the same path.
+name: openssh-client
+version: 10.6
+summary: OpenSSH's clients: ssh, scp, sftp, ssh-keygen, ssh-keyscan, ssh-agent, ssh-add
+file: usr/bin/ssh 0755
+file: usr/bin/scp 0755
+file: usr/bin/sftp 0755
+file: usr/bin/ssh-keygen 0755
+file: usr/bin/ssh-keyscan 0755
+file: usr/bin/ssh-agent 0755
+file: usr/bin/ssh-add 0755

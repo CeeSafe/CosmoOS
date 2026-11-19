@@ -1,0 +1,12 @@
+# openssh-server: the package (ports/openssh/README.md, "The packages").
+# Paths are in the staged install openssh.mk makes, and are installed at the same path.
+name: openssh-server
+version: 10.6
+summary: OpenSSH's sshd, in dropbear's place on port 22 (svc start sshd)
+depends: openssh-client = 10.6
+file: usr/sbin/sshd 0755
+file: usr/libexec/sshd-session 0755
+file: usr/libexec/sshd-auth 0755
+file: etc/ssh/sshd_config 0644
+file: etc/ssh/start 0755
+file: etc/svc/sshd 0644

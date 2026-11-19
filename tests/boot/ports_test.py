@@ -26,6 +26,11 @@ scripts/publish-repo.py does) over HTTPS from 127.0.0.1 (the guest's
      pty_keys, TERM=xterm-256color) runs `nano FILE`, types a line,
      writes it out (^O, Enter) and leaves (^X);
      the file holds the line, and the session drew nano's title bar.
+  s. `pkg install openssh-server` (openssh-client with it, its dependency);
+     `svc start sshd`: port 22 now answers with OpenSSH's banner, not
+     dropbear's. A key login from the host; `scp` both ways, byte for byte
+     (the sftp subsystem: the base system's sftp-server); then, on the
+     target, its own ssh-keygen and ssh against its own sshd.
   z. No program a port installs met a system call the Linux personality
      lacks: the kernel's log (a debug kernel's: the lines are DEBUG) has
      no `unimplemented system call` line naming one. A probe compiled on
@@ -51,14 +56,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import install_test  # noqa: E402  (Boot, Fail, need, stage_install)
 import tlstest  # noqa: E402
 from install_test import Boot, Fail, need  # noqa: E402
-from net_login_test import WIN_COLS, WIN_ROWS, free_port, ssh_base, ssh_run, ssh_wait  # noqa: E402
+from net_login_test import WIN_COLS, WIN_ROWS, free_port, ssh_base, ssh_run, ssh_wait, xfer, xfer_base  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PKGBUILD = os.path.join(ROOT, "tools", "pkgbuild.py")
 DAY = 86400
 # The programs the ports install: a call the Linux personality lacks, made by
 # one of them, fails the test (z). The base system's are reported, not judged.
-PORT_PROGRAMS = {"nano", "curl", "git", "git-remote-https", "git-remote-http"}
+PORT_PROGRAMS = {"nano", "curl", "git", "git-remote-https", "git-remote-http", "ssh", "scp", "sftp", "ssh-keygen",
+                 "sshd", "sshd-session", "sshd-auth"}
 
 
 def utc(t):
@@ -259,6 +265,76 @@ def stage_git(b, results, work, www, server):
                    f"(2 commits); a commit made the third; git fsck clean; {ver!r}")
 
 
+def banner(port):
+    """The first line an ssh server sends on the forwarded port."""
+    import socket
+    with socket.create_connection(("127.0.0.1", port), timeout=30) as c:
+        c.settimeout(30)
+        data = b""
+        while b"\n" not in data:
+            chunk = c.recv(256)
+            if not chunk:
+                break
+            data += chunk
+    return data.split(b"\n", 1)[0].decode("ascii", "replace").strip()
+
+
+def stage_openssh(work, b, results, port):
+    """s: sshd in dropbear's place, a key login, scp both ways; the target's own clients."""
+    before = banner(port)
+    if not before.startswith("SSH-2.0-dropbear"):
+        raise Fail(f"port 22 before sshd: {before!r}, expected dropbear's banner")
+    out = b.status("pkg install openssh-server", "inst")
+    need(out, r"^inst=0$", "pkg install openssh-server")
+    need(out, r"^pkg: installing openssh-client-10\.6 \(\d+ files?\)$", "openssh-client installed, the dependency")
+    need(out, r"^pkg: installing openssh-server-10\.6 \(\d+ files?\)$", "openssh-server installed")
+    out = b.status("svc start sshd", "start")
+    need(out, r"^start=0$", "svc start sshd")
+    t0, now = time.monotonic(), ""
+    while time.monotonic() - t0 < 120:   # its host key is made first
+        try:
+            now = banner(port)
+        except OSError as e:
+            now = f"({e})"
+        if now.startswith("SSH-2.0-OpenSSH_10.6"):
+            break
+        time.sleep(2)
+    else:
+        log = b.run("cat /var/log/svc/sshd")
+        raise Fail(f"port 22 after svc start sshd: {now!r}, expected OpenSSH 10.6's banner; its log:\n{log[-1500:]}")
+    os.unlink(os.path.join(work, "known_hosts"))   # a new server, a new host key
+    waited = ssh_wait(work, port, strict=False)
+    rc, out = ssh_run(work, port, True, "uname -s; id -u; echo sshd-ok")
+    if rc != 0 or not re.search(r"^sshd-ok$", out, re.M) or not re.search(r"^0$", out, re.M):
+        raise Fail(f"ssh to sshd: status {rc}, output {out!r}")
+    up = os.path.join(work, "scp-up.bin")
+    with open(up, "wb") as f:
+        f.write(os.urandom(200000))
+    rc, out = xfer(xfer_base("scp", work, port) + [up, "root@127.0.0.1:/root/scp-up.bin"])
+    if rc != 0:
+        raise Fail(f"scp to the target: status {rc}: {out.strip()[-400:]}")
+    down = os.path.join(work, "scp-down.bin")
+    rc, out = xfer(xfer_base("scp", work, port) + ["root@127.0.0.1:/root/scp-up.bin", down])
+    if rc != 0:
+        raise Fail(f"scp from the target: status {rc}: {out.strip()[-400:]}")
+    if open(down, "rb").read() != open(up, "rb").read():
+        raise Fail("scp: the file that came back differs from the one sent")
+    # The target's own clients against its own server: ssh-keygen and ssh.
+    # Not scp here: over the target's loopback it stalls (backlog NET-25), and
+    # a bare `scp` is dropbear's, which needs a dbclient the base system does
+    # not have (backlog USR-12). scp both ways is the host's, above.
+    out = b.status("rm -f /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub && "
+                   "ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519 && "
+                   "cat /root/.ssh/id_ed25519.pub >> /root/.ssh/authorized_keys && "
+                   "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/kh "
+                   "root@127.0.0.1 'echo from-the-target'", "loop")
+    need(out, r"^loop=0$", "the target's ssh-keygen and ssh against its own sshd")
+    need(out, r"^from-the-target$", "the target's ssh ran a command")
+    results.append(f"s. pkg install openssh-server (openssh-client with it); svc start sshd: port 22 went from "
+                   f"{before!r} to {now!r}; a key login ({waited:.1f} s), root; scp of 200000 bytes there and back "
+                   f"byte for byte; the target's own ssh-keygen and ssh against its sshd")
+
+
 def stage_ports(args, results, inst):
     work = args.workdir
     tls, www = os.path.join(work, "tls"), os.path.join(work, "www")
@@ -301,6 +377,7 @@ def stage_ports(args, results, inst):
         waited = ssh_wait(work, port, strict=False)
         results.append(f"ssh: key login as root in {waited:.1f} s")
         stage_nano(work, results, port)
+        stage_openssh(work, b, results, port)
 
         # z. What the Linux personality lacked. First a call it lacks on
         # purpose (inotify_init1, from a program the system's own tcc

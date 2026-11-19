@@ -258,6 +258,7 @@ Open lines (struck lines are not counted):
 - **NET-22** nice-to-have, S. e1000e checksum offload (measured at about 2 %).
 - **NET-23** correctness, S. `net-tcp-delack` asserts no retransmission with the host-wide `tcp_get_stats` counter, so another pcb's retransmission fails it (AArch64 SMP4, 2026-10-24, flakes.md); count the client pcb's own.
 - **NET-24** usability, S. The kernel returns `ENETUNREACH` (101) and `ENOBUFS` (105) to user space, but neither `uapi/cosmo/syscall.h` nor `libc/include/errno.h` names them.
+- **NET-25** correctness, M. On the target, OpenSSH's `/usr/bin/scp` of a 200000-byte file to the same system's sshd over loopback (127.0.0.1) stalls at 0% and does not end: ssh logs in, `sshd-session` runs `sftp-server`, `sftp-server` exits with status 0, and the client waits on (x86-64 debug, `make test-ports` draft, roadmap 1.3 R3, 2026-11-19). The same sshd and `sftp-server` copied the same file both ways with the host over QEMU's user network, and `ssh 127.0.0.1 'echo ...'` on the target worked. Not yet reduced: loopback TCP with both ends on CosmoOS, or the client's handling of the server's end.
 
 ## Observability
 
@@ -362,6 +363,7 @@ Open lines (struck lines are not counted):
 - **USR-9** usability, S. The quiet screen shows init's and the services' lines as they print them: there is no one line per service started or failed, as a Linux distribution's boot has.
 - **USR-10** nice-to-have, S. BusyBox `passwd` warns `can't lock '/etc/shadow': Invalid argument` (and `/etc/passwd`), and syslogd logs it as `auth.err`: fcntl record locks are refused (EINVAL). The password is changed all the same (the landing terminal's second PR).
 - **USR-11** usability, S. On the live image the console shell is `cosmo-sh`, which does not run a `#!` script: `cosmo-welcome` typed there fails `Exec format error` (status 126), though v1.1.1's notes say it shows the welcome again (true on an installed system, whose shell is BusyBox `sh`). Seen 2026-11-15.
+- **USR-12** usability, S. `/bin/scp` is dropbear's, there for the classic protocol's remote end (`scp -t`/`-f`); run as a client it execs `/usr/bin/dbclient`, which the base system does not ship, and fails (`/usr/bin/dbclient: No such file or directory`, `lost connection`). `/bin` precedes `/usr/bin` in the PATH, so after `pkg install openssh-client` a bare `scp` is still that one; OpenSSH's is `/usr/bin/scp` (`make test-ports`, roadmap 1.3 R3, 2026-11-19).
 
 ## VFS
 
