@@ -115,7 +115,20 @@ on without them.
 | z. missing calls | the probe's only, from the ports | the same |
 | verdict | PASS | PASS |
 
-`make matrix`: PENDING.
+`make matrix` on `46d2918c` (the code of this PR; the report and history
+entry came after), on the other machine, in the CI image with the pinned
+ceesafec 0.57.1 and a fresh `out/`, one architecture after the other:
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.9 / 243.0 / 246.3 s | 273.8 / 282.4 / 302.6 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 244.3 / 241.6 / 246.0 s | 289.2 / 308.9 / 300.3 s |
+| release `test` | 18.9 s | 23.4 s |
+
+Branch CI: PENDING.
 
 ## Limits
 
