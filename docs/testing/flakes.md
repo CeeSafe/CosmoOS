@@ -3143,6 +3143,18 @@ matrix's `QEMU_SMP=2` and `4` boots, `test-smp2`, `test-chaos` and
 the step the first one named is due: a baseline of the thread
 identities before the test, so the dump names the one that went.
 
+**Third sighting, 2026-11-19:** CI, PR #534 at `dc391858` (run
+44487990666, job 135436569561, `entropy boots (aarch64)`), the
+`test-modcycle` debug boot (`CeeSafe driver load and unload cycles`):
+`check failed: threads_settle(before) at line 998 (548 ms)` after the
+test's own line passed (100 runs of 32, 3200 trips, nesting 1);
+`threads_settle: 18 threads after 200 ms, expected 19`, and the dump
+lists only the boot's resident threads (kmain, four idles, reaper,
+quiesce, four netrx, four irqpoll, blk-timeout, xhci/0, ahci/0) -- the
+count below again. The PR changes a host script, a boot harness and the
+workflows, no kernel code. Three sightings, all AArch64; still not
+attributed (backlog TEST-18). The run was replaced by the next push's.
+
 ## `irqpoll-boost` over its gap bound, 2026-10-10
 
 `SELFTEST: irqpoll-boost ... FAIL: check failed: gap_ms <= BOOST_GAP_MS
