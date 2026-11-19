@@ -391,6 +391,7 @@ extern "C" {
     fn netif_set_ipv4(nif: *mut netif, addr: u32, mask: u32, gateway: u32);
     fn netif_find(name: *CChar) -> *mut netif;
     fn dhcp_client_stop(nif: *mut netif);
+    fn arp_flush(nif: *mut netif);
     fn netif_set_up(nif: *mut netif, up: bool);
     fn netif_set_forward(nif: *mut netif, on: bool);
     fn netif_set_masquerade(nif: *mut netif, on: bool);
@@ -1106,6 +1107,7 @@ unsafe fn ctlIpv4(buf: *void, len: usize) -> i64 {
         dhcp_client_stop(nif);
         let mask = swap32(0xffffffffu32 << (32 - (c.prefix as u32))); // prefix 1..32: a shift of 0..31
         netif_set_ipv4(nif, c.addr, mask, c.gateway);
+        arp_flush(nif); // neighbours learned under the old address or router, as a lease's change flushes them
     }
     kobject_put(borrow mut Ptr.toBorrowMut(nif).obj as *mut kobject);
     return rc;

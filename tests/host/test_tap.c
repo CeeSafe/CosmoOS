@@ -345,6 +345,16 @@ void dhcp_client_stop(struct netif *nif)
     g_dhcp_stops++;
 }
 
+static unsigned g_arp_flushes;
+static uint32_t g_flushed_addr;   /* the address when the neighbours were flushed */
+
+void arp_flush(struct netif *nif)
+{
+    EXPECT(nif == &g_eth0);
+    g_arp_flushes++;
+    g_flushed_addr = nif->ip4.addr;
+}
+
 void netif_set_up(struct netif *nif, bool up)
 {
     note(6, ((uint64_t)nif->index << 1) | up);
@@ -1080,6 +1090,7 @@ static void test_ipv4_set(void)
     EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c)) == (int64_t)sizeof(c));
     EXPECT(g_dhcp_stops == 1 && g_eth0.ip4.addr == c.addr && g_eth0.ip4.gateway == c.gateway);
     EXPECT(g_eth0.ip4.mask == IPV4_ADDR(255, 255, 255, 0));
+    EXPECT(g_arp_flushes == 1 && g_flushed_addr == c.addr);   /* the neighbours flushed after the change */
     c.prefix = 32;
     EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c)) == (int64_t)sizeof(c));
     EXPECT(g_eth0.ip4.mask == IPV4_ADDR(255, 255, 255, 255) && g_dhcp_stops == 2);
@@ -1099,11 +1110,12 @@ static void test_ipv4_set(void)
     memset(bad[6].ifname, 'e', sizeof(bad[6].ifname));   /* not terminated */
     static const int64_t want[7] = { -EINVAL, -ENOENT, -EINVAL, -EINVAL, -EINVAL, -EINVAL, -EINVAL };
     uint32_t addr = g_eth0.ip4.addr, mask = g_eth0.ip4.mask;
-    unsigned stops = g_dhcp_stops;
+    unsigned stops = g_dhcp_stops, flushes = g_arp_flushes;
     for (unsigned i = 0; i < 7; i++)
         EXPECT(g_ctl_ops->write(NULL, 0, &bad[i], sizeof(bad[i])) == want[i]);
     EXPECT(g_ctl_ops->write(NULL, 0, &c, sizeof(c) - 1) == -EINVAL);
     EXPECT(g_eth0.ip4.addr == addr && g_eth0.ip4.mask == mask && g_dhcp_stops == stops && g_lo.ip4.addr == 0);
+    EXPECT(g_arp_flushes == flushes);
     EXPECT(__atomic_load_n(&g_eth0.obj.refcount, __ATOMIC_RELAXED) == 1 && __atomic_load_n(&g_lo.obj.refcount, __ATOMIC_RELAXED) == 1);   /* every find put back */
 }
 

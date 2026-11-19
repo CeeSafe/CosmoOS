@@ -49,6 +49,25 @@ checked. `kernel/kernel.mk` loses its line. `socket.cee`'s comment no
 longer names `pipe_floor.c`. The gate: no tree has more C to convert than
 the base.
 
+### The review's fixes
+
+Greptile and Codex on #532:
+
+- `ctlIpv4` left the interface's ARP entries, learned under the old
+  address or router; it now calls `arp_flush` after `netif_set_ipv4`, as
+  a lease's change does. `test_ipv4_set` checks one flush per set, after
+  the address changed, and none for a refused record.
+- `dhcp_client_stop` had one caller, `netif_unregister`. With `IPV4_SET`
+  a second can stop the same client at the same time: both found the
+  slot, both waited, and both dropped the client's single interface
+  reference. Now the caller that sets `stopping` does the stop; another,
+  finding it set, waits until the slot is no longer that interface's
+  stopping client and drops nothing. `test_dhcp`'s `dhcp stop race`
+  starts the second stop from work the first's barrier runs. With the old
+  `stop` it fails: the second stop does not wait, and the reference count
+  is one lower than one drop leaves. With the fix it passes. The digest
+  of the DHCP histories is unchanged (`0x10330ab4022bbc46`).
+
 ## Validation
 
 `make matrix` on `a986037d`, both architectures on the other machine, in
