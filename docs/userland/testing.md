@@ -268,6 +268,27 @@ password gets `Login incorrect` and the login again, no shell prompt
 comes meanwhile, and root's password logs in. The user guide's runner does the same for a session line
 marked `login` (`tests/guide/run_guide.py`).
 
+## cosmo-seed on the host (`tests/host/test_seed.c`, `test_seed.py`; `make host-test`)
+
+Roadmap 1.3 R2 (design.md, "The seed"). `test_seed`, built from the C
+generated from `userland/system/seed.cee` (through its exports), checks the
+YAML subset when run alone: a `#cloud-config` with a quoted key, a
+`network-config` with a list of maps and flow lists, and parse errors with
+their lines (a block scalar, a tab, stray indentation, a duplicated key, a
+flow map, an anchor, an open quote, a second document), and three
+documents held at once (cosmo-seed's slots; a fourth refused). `test_seed.py`
+runs it as a tool over seeds `tools/mkseed.py` writes: ISO 9660 with
+Joliet, Rock Ridge and plain names, FAT12 and FAT16 with long names. Each
+is found, and each of its three files (one 2179 bytes, over several
+clusters and sectors) reads back byte for byte; a missing file is
+`ENOENT`. Not seeds: zeros, an ISO labelled otherwise, a one-sector
+device. Damage: an ISO extent past the device's end and a 33-byte
+directory record are `EINVAL`, a FAT chain that comes back on itself or
+ends before its file is `EINVAL`, a file claiming 70000 bytes is `EFBIG`
+and not read. The YAML as cosmo-seed reads it: the paths of a
+`network-config`, a `routes` list of maps, an unknown key parsed (cosmo-seed
+names and ignores it), and five parse errors.
+
 ## `make test-images` (`tests/boot/images_test.py`)
 
 Roadmap 1.3 R1: the release set's images for other hypervisors, QCOW2

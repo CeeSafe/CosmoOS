@@ -4,6 +4,10 @@ echo "CosmoOS userland ready"
 # services that may use them. BusyBox mount; one that fails is reported
 # and the rest still mount.
 mount -a
+# A cloud's seed (roadmap 1.3 R2; docs/userland/design.md, "First boot
+# without a console"): the SSH key before dropbear starts, the host name
+# before it is applied below, the network. Silent without a seed.
+cosmo-seed
 # Services, in dependency order. Their output goes to /var/log/svc/<name>
 # and `svc status` says what is running (docs/userland/design.md).
 svc boot

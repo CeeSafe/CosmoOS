@@ -149,6 +149,10 @@ static int write_whole(const char *path, const char *text, size_t len)
  * 0 when there is none to set or it was set; 1 on a failure. */
 static int apply_hostname(const struct cosmo_netctl_lease *l, int n, const char *path)
 {
+    /* A name a cloud's seed gave (cosmo-seed; roadmap 1.3 R2) is the
+     * machine's: no DHCP server's replaces it. */
+    if (access("/var/lib/cloud/hostname", F_OK) == 0)
+        return 0;
     for (int i = 0; i < n; i++) {
         if (!held(&l[i]) || l[i].hostname[0] == '\0')
             continue;

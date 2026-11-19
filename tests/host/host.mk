@@ -151,6 +151,8 @@ HOST_CPUTIME_SRCS := $(HOST_COMMON_SRCS) kernel/process/cputime.c kernel/ceesafe
 HOST_NICE_SRCS := $(HOST_COMMON_SRCS) kernel/process/nice.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_nice.c
 HOST_FAIR_SRCS := $(HOST_COMMON_SRCS) kernel/scheduler/fair.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_fair.c
 HOST_UPBE_SRCS := $(HOST_COMMON_SRCS) userland/system/upgrade_be.c tests/host/test_upgrade_be.c
+# Roadmap 1.3 R2: cosmo-seed's readers, generated from seed.cee, alone (no harness: test_seed.py also runs it as a tool).
+HOST_SEED_SRCS := userland/system/seed.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_seed.c
 HOST_NETPARSE_SRCS := $(HOST_COMMON_SRCS) kernel-services/network/netparse.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_netparse.c
 HOST_ELF_SRCS := $(HOST_COMMON_SRCS) kernel/process/elfparse.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_elf.c
 HOST_ACPI_SRCS := $(HOST_COMMON_SRCS) drivers/acpi/acpi_parse.c kernel/ceesafe/ceesafe_rt_core.c tests/host/ceesafe_panic.c tests/host/test_acpi.c
@@ -246,7 +248,7 @@ HOST_HANDLES_SRCS := $(HOST_COMMON_SRCS) kernel/object/object.c kernel/object/ob
 HOST_PCI_BAR_SRCS := $(HOST_COMMON_SRCS) tests/host/test_pci_bar.c
 HOST_JITTER_SRCS := $(HOST_COMMON_SRCS) kernel/core/jitter.c tests/host/test_jitter.c
 
-HOST_TESTS := $(HOST_OUT)/test_cksum $(HOST_OUT)/test_inet $(HOST_OUT)/test_ether $(HOST_OUT)/test_loopback $(HOST_OUT)/test_mbuf $(HOST_OUT)/test_netif $(HOST_OUT)/test_arp $(HOST_OUT)/test_nd $(HOST_OUT)/test_diskid $(HOST_OUT)/test_ipv6 $(HOST_OUT)/test_ipv4 $(HOST_OUT)/test_udp $(HOST_OUT)/test_raw $(HOST_OUT)/test_fw $(HOST_OUT)/test_nat $(HOST_OUT)/test_socket $(HOST_OUT)/test_tcp $(HOST_OUT)/test_dhcp $(HOST_OUT)/test_tapsvc $(HOST_OUT)/test_tap $(HOST_OUT)/test_procnet $(HOST_OUT)/test_procfs $(HOST_OUT)/test_memdev $(HOST_OUT)/test_mountns $(HOST_OUT)/test_blkctl $(HOST_OUT)/test_pagecache $(HOST_OUT)/test_ramfs $(HOST_OUT)/test_fsctl $(HOST_OUT)/test_vfs $(HOST_OUT)/test_interrupt $(HOST_OUT)/test_buddy $(HOST_OUT)/test_slab $(HOST_OUT)/test_crypto $(HOST_OUT)/test_relsig $(HOST_OUT)/test_modelf $(HOST_OUT)/test_cosmofs $(HOST_OUT)/test_libc $(HOST_OUT)/test_pkg $(HOST_OUT)/test_linux $(HOST_OUT)/test_hv $(HOST_OUT)/test_vmx $(HOST_OUT)/test_hv_s2 $(HOST_OUT)/test_reloc_aarch64 $(HOST_OUT)/test_virtq $(HOST_OUT)/test_cred $(HOST_OUT)/test_quiesce $(HOST_OUT)/test_lockdep $(HOST_OUT)/test_lockdep_threads $(HOST_OUT)/test_lockup $(HOST_OUT)/test_lz4 $(HOST_OUT)/test_chacha20 $(HOST_OUT)/test_keyslot $(HOST_OUT)/test_fbvalid $(HOST_OUT)/test_display $(HOST_OUT)/test_fdt $(HOST_OUT)/test_vblk_dev $(HOST_OUT)/test_vnet_dev $(HOST_OUT)/test_gpt $(HOST_OUT)/test_part $(HOST_OUT)/test_ramblk $(HOST_OUT)/test_blk $(HOST_OUT)/test_pool $(HOST_OUT)/test_cputime $(HOST_OUT)/test_nice $(HOST_OUT)/test_fair $(HOST_OUT)/test_upgrade_be $(HOST_OUT)/test_pci_bar $(HOST_OUT)/test_jitter $(HOST_OUT)/test_handles $(HOST_OUT)/test_netparse $(HOST_OUT)/test_elf $(HOST_OUT)/test_cfsparse $(HOST_OUT)/test_cfsreach $(HOST_OUT)/test_cfsclone $(HOST_OUT)/test_cfsrollback $(HOST_OUT)/test_cfsscrub $(HOST_OUT)/test_cfscrypt $(HOST_OUT)/test_cfsresilver $(HOST_OUT)/test_cfsmember $(HOST_OUT)/test_cfscheck $(HOST_OUT)/test_cfssnap $(HOST_OUT)/test_cfsbuf $(HOST_OUT)/test_cfsalloc $(HOST_OUT)/test_cfscommit $(HOST_OUT)/test_cfsformat $(HOST_OUT)/test_cfscorrupt $(HOST_OUT)/test_cfshooks $(HOST_OUT)/test_cfscore $(HOST_OUT)/test_cfssnapctl $(HOST_OUT)/test_cfscsum $(HOST_OUT)/test_cfsdata $(HOST_OUT)/test_cfsfile $(HOST_OUT)/test_cfsvnode $(HOST_OUT)/test_cfsdirblk $(HOST_OUT)/test_cfsdir $(HOST_OUT)/test_usbdesc $(HOST_OUT)/test_acpi $(HOST_OUT)/test_sync
+HOST_TESTS := $(HOST_OUT)/test_cksum $(HOST_OUT)/test_inet $(HOST_OUT)/test_ether $(HOST_OUT)/test_loopback $(HOST_OUT)/test_mbuf $(HOST_OUT)/test_netif $(HOST_OUT)/test_arp $(HOST_OUT)/test_nd $(HOST_OUT)/test_diskid $(HOST_OUT)/test_ipv6 $(HOST_OUT)/test_ipv4 $(HOST_OUT)/test_udp $(HOST_OUT)/test_raw $(HOST_OUT)/test_fw $(HOST_OUT)/test_nat $(HOST_OUT)/test_socket $(HOST_OUT)/test_tcp $(HOST_OUT)/test_dhcp $(HOST_OUT)/test_tapsvc $(HOST_OUT)/test_tap $(HOST_OUT)/test_procnet $(HOST_OUT)/test_procfs $(HOST_OUT)/test_memdev $(HOST_OUT)/test_mountns $(HOST_OUT)/test_blkctl $(HOST_OUT)/test_pagecache $(HOST_OUT)/test_ramfs $(HOST_OUT)/test_fsctl $(HOST_OUT)/test_vfs $(HOST_OUT)/test_interrupt $(HOST_OUT)/test_buddy $(HOST_OUT)/test_slab $(HOST_OUT)/test_crypto $(HOST_OUT)/test_relsig $(HOST_OUT)/test_modelf $(HOST_OUT)/test_cosmofs $(HOST_OUT)/test_libc $(HOST_OUT)/test_pkg $(HOST_OUT)/test_linux $(HOST_OUT)/test_hv $(HOST_OUT)/test_vmx $(HOST_OUT)/test_hv_s2 $(HOST_OUT)/test_reloc_aarch64 $(HOST_OUT)/test_virtq $(HOST_OUT)/test_cred $(HOST_OUT)/test_quiesce $(HOST_OUT)/test_lockdep $(HOST_OUT)/test_lockdep_threads $(HOST_OUT)/test_lockup $(HOST_OUT)/test_lz4 $(HOST_OUT)/test_chacha20 $(HOST_OUT)/test_keyslot $(HOST_OUT)/test_fbvalid $(HOST_OUT)/test_display $(HOST_OUT)/test_fdt $(HOST_OUT)/test_vblk_dev $(HOST_OUT)/test_vnet_dev $(HOST_OUT)/test_gpt $(HOST_OUT)/test_part $(HOST_OUT)/test_ramblk $(HOST_OUT)/test_blk $(HOST_OUT)/test_pool $(HOST_OUT)/test_cputime $(HOST_OUT)/test_nice $(HOST_OUT)/test_fair $(HOST_OUT)/test_upgrade_be $(HOST_OUT)/test_seed $(HOST_OUT)/test_pci_bar $(HOST_OUT)/test_jitter $(HOST_OUT)/test_handles $(HOST_OUT)/test_netparse $(HOST_OUT)/test_elf $(HOST_OUT)/test_cfsparse $(HOST_OUT)/test_cfsreach $(HOST_OUT)/test_cfsclone $(HOST_OUT)/test_cfsrollback $(HOST_OUT)/test_cfsscrub $(HOST_OUT)/test_cfscrypt $(HOST_OUT)/test_cfsresilver $(HOST_OUT)/test_cfsmember $(HOST_OUT)/test_cfscheck $(HOST_OUT)/test_cfssnap $(HOST_OUT)/test_cfsbuf $(HOST_OUT)/test_cfsalloc $(HOST_OUT)/test_cfscommit $(HOST_OUT)/test_cfsformat $(HOST_OUT)/test_cfscorrupt $(HOST_OUT)/test_cfshooks $(HOST_OUT)/test_cfscore $(HOST_OUT)/test_cfssnapctl $(HOST_OUT)/test_cfscsum $(HOST_OUT)/test_cfsdata $(HOST_OUT)/test_cfsfile $(HOST_OUT)/test_cfsvnode $(HOST_OUT)/test_cfsdirblk $(HOST_OUT)/test_cfsdir $(HOST_OUT)/test_usbdesc $(HOST_OUT)/test_acpi $(HOST_OUT)/test_sync
 
 $(HOST_OUT)/test_fbvalid: $(call src_paths,$(HOST_FBVALID_SRCS)) | $(CEE_STAMP)
 	$(call log,HOSTCC,$@)
@@ -271,6 +273,11 @@ $(HOST_OUT)/test_pci_bar: $(call src_paths,$(HOST_PCI_BAR_SRCS)) $(ROOT)/kernel/
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $(call src_paths,$(HOST_PCI_BAR_SRCS)) $(HOST_LDFLAGS) -o $@
 
 $(HOST_OUT)/test_upgrade_be: $(call src_paths,$(HOST_UPBE_SRCS)) | $(CEE_STAMP)
+	$(call log,HOSTCC,$@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) $^ $(HOST_LDFLAGS) -o $@
+
+$(HOST_OUT)/test_seed: $(call src_paths,$(HOST_SEED_SRCS)) | $(CEE_STAMP)
 	$(call log,HOSTCC,$@)
 	$(Q)mkdir -p $(dir $@)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $^ $(HOST_LDFLAGS) -o $@
@@ -810,6 +817,8 @@ host-test: $(HOST_TESTS)
 	$(Q)$(PYTHON) $(ROOT)/tests/host/test_release_version.py
 	@echo "== $(ROOT)/tests/host/test_mkvmimages.py"
 	$(Q)$(PYTHON) $(ROOT)/tests/host/test_mkvmimages.py
+	@echo "== $(ROOT)/tests/host/test_seed.py"
+	$(Q)$(PYTHON) $(ROOT)/tests/host/test_seed.py $(HOST_OUT)/test_seed
 	@echo "== $(ROOT)/tests/host/test_boot_harness.py"
 	$(Q)$(PYTHON) $(ROOT)/tests/host/test_boot_harness.py
 	@echo "== $(ROOT)/tests/host/test_publish_repo.py"

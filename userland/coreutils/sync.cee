@@ -1,0 +1,14 @@
+// sync.cee - commit every filesystem to its disk (roadmap M2: a disk root keeps only what has been committed). A whole
+// user program in CeeSafe (roadmap 1.3 R2, the CeeSafe rule's offset for R2's C): the C it replaced, in behaviour.
+
+@header("unistd.h")
+extern "C" {
+    fn sync();
+}
+
+/// Safety: `argv` holds `argc` strings (none are read).
+@export("cosmo_program_main") // crt0 calls main: the link names this main (userland.mk, USER_CEE_PROGRAMS)
+unsafe fn run(argc: i32, argv: *mut *mut CChar) -> i32 {
+    sync();
+    return 0;
+}

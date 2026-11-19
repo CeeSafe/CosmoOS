@@ -900,54 +900,91 @@ design, "Growing a member".
 Growth does not depend on the seed: a cloud image booted without one still
 fills its disk. An installed disk whose root already fills it is unchanged.
 
-### The seed
+### The seed (`userland/system/cosmo-seed.cee`, `seed.cee`)
 
-`/etc/rc` runs `cosmo-seed` before `svc boot` (dropbear must see the key
-when it starts) and before `hostname -F`. It looks at every block device
-`/dev/blkctl` lists, reading sectors, no file system mounted:
+`/etc/rc` runs `cosmo-seed` after `mount -a` and before `svc boot`
+(dropbear must find the key when it starts) and `hostname -F`. It reads
+every block device `/dev/blkctl` lists that is neither mounted nor the
+boot device, by sectors through `/dev/blkctl` (512-byte sectors, a larger
+device sector read whole and cut), with no file system mounted. Both are
+CeeSafe user code (`docs/build/ceesafe.md`, "User programs"): the program,
+and `seed.cee`, the readers and the YAML, which the program and the host
+test link through its C exports (`seed_probe`, `seed_file`, `yaml_*`; three
+documents at once, one seed's layout, the last probed). The readers check
+every offset, length, count and cluster number against the device and
+their buffers before using it:
 
-- **ISO 9660**: a primary volume descriptor at byte 32768 whose volume
-  identifier is `cidata` (any case). File names come from the Joliet
-  supplementary descriptor when there is one, else from Rock Ridge `NM`
-  entries; the files are in the root directory.
-- **FAT12, 16 or 32**: a boot sector whose volume label (or the root
-  directory's label entry) is `cidata`; long file names are read.
+- **ISO 9660**: the volume descriptors from 32768 bytes (at most 32, to the
+  terminator); a primary volume identifier of `cidata` (any case) makes it
+  a seed. Names come from the Joliet descriptor's root directory when there
+  is one, else from Rock Ridge `NM` entries, else from the ISO names with
+  the version (`;1`) and a trailing `.` dropped and `_` read as `-` (an ISO
+  name cannot hold `-`). Names compare without case. A root directory over
+  1 MiB, a record shorter than 34 bytes or running past its block, and a
+  file in several extents are refused.
+- **FAT12, 16 or 32** (512-byte sectors): the type from the cluster count;
+  the boot sector's label, or the root directory's volume label entry,
+  `cidata`. VFAT long names (their checksum checked), else the 8.3 name;
+  root directory only. A chain that leaves the cluster range, comes back on
+  itself or ends before the file is refused; a FAT32 root directory is
+  walked to at most 65536 entries, a directory's limit.
 
-No seed: `cosmo-seed` prints nothing and exits 0, and the boot is as today.
-More than one: none is used, and it says so. It reads `meta-data`,
-`user-data` and `network-config`, each at most 64 KiB.
+No seed: `cosmo-seed` prints nothing, exits 0, and the boot is as before.
+More than one: none is used, and one line names two of them. It reads
+`meta-data`, `user-data` and `network-config`, each at most 64 KiB (a
+longer one is not read, and said); a file holding a NUL is not read.
 
-**The subset.** A small YAML reader takes block maps, block lists, flow
-lists (`[a, b]`), and plain, single- and double-quoted scalars; anything
-else in a file is a parse error, which skips that file with a line and
-does not stop the boot. Keys outside the subset are named in one line and
-ignored.
+**The subset** (`seed.cee`). Block maps (a list may sit at its key's own
+column), block lists (an item may be a map: `- to: default` with `via:`
+under it), flow lists of scalars (`[a, b]`), plain, single- and
+double-quoted scalars (`''`, `\n`, `\t`, `\\`, `\"`, `\/`), comments and one
+leading `---`. Anything else -- a tab in the indentation, a block scalar,
+a flow map, an anchor, alias or tag, a duplicated key, indentation that
+belongs to nothing, a second document -- is a parse error: the file is
+skipped with `cosmo-seed: FILE: line N: why`, and the boot goes on. At most
+1024 lines and 512 nodes. Keys outside the table are named in one line
+(`cosmo-seed: user-data: ignoring runcmd`) and ignored.
 
 | File | Keys used |
 |---|---|
-| `meta-data` | `instance-id` (required), `local-hostname` |
+| `meta-data` | `instance-id` (required: without it nothing is applied), `local-hostname` |
 | `user-data` | only when its first line is `#cloud-config`: `hostname`, `ssh_authorized_keys` (a list) |
-| `network-config` | version 2: `ethernets`, each by `match: macaddress` or the interface name, with `dhcp4`, `addresses` (one IPv4 CIDR), `gateway4` or a `routes` entry `to: default` with `via`, and `nameservers: addresses` |
+| `network-config` | `version: 2`, `ethernets`: each by `match: macaddress` or by the interface's name, with `dhcp4`, `addresses` (the first IPv4 CIDR; IPv6 skipped), `gateway4` or a `routes` entry whose `to` is `default` or `0.0.0.0/0`, with `via`, and `nameservers: addresses` (`set-name` is accepted and ignored) |
 
-**Once per instance.** The host name and the keys are applied when the
-seed's `instance-id` differs from `/var/lib/cloud/instance-id` (or that
-file is absent): `hostname` (from `user-data`, else `local-hostname`) is
-checked as the kernel checks a DHCP name (letters, digits, `-` and `.`, at
-most 64), written to `/etc/hostname` and set; each key is appended to
-`/root/.ssh/authorized_keys` unless it is already there (the directory
-0700, the file 0600); then the instance id is written. A host name set by
-a seed is kept: `cosmo-seed` writes `/var/lib/cloud/hostname`, and
-`netcfg` does not apply a DHCP server's name while that file exists.
+**Once per instance.** The host name and the keys apply when the seed's
+`instance-id` differs from `/var/lib/cloud/instance-id` (or that file is
+absent): the name (`user-data`'s `hostname`, else `local-hostname`) must
+be letters, digits, `-` and `.`, at most 64, as the kernel keeps a DHCP
+server's; it is written to `/etc/hostname` and `/var/lib/cloud/hostname`
+(each written beside and renamed over) and set with `sethostname`. Each
+key not already a line of `/root/.ssh/authorized_keys` is appended
+(`/root/.ssh` 0700, the file 0600, at most 64 KiB). Then the instance id
+is written, only if both applied (a failure leaves it unwritten, says
+`instance <id> not recorded`, and the next boot tries again); a later boot
+of the same instance says `instance <id> already applied`. `netcfg` does not apply a DHCP server's host name while
+`/var/lib/cloud/hostname` exists. A failure with a system error (a write,
+`sethostname`, a directory, `IPV4_SET`) is reported by `perror`, on the
+standard error: errno is libc's `__errno_location`, a name CeeSafe does not
+import; every other line is on the standard output.
 
-**The network, every boot.** An interface named in `network-config` with
-`dhcp4: true` and no address keeps the kernel's DHCP client, as today. One
-with an address is configured static through `/dev/net/tapctl` (a new
-operation; the kernel's DHCP client stops for that interface; the network
-design, "A static address from user space"), with its gateway as the
-default route, and its name servers are written to `/etc/resolv.conf` the
-way `netcfg` writes it. Interfaces the file does not name keep DHCP. The
-kernel's state is not on disk, so this runs at every boot that has the
-seed; a seed removed later leaves the machine on DHCP.
+**The network, every boot.** The interfaces come from `/dev/net/tapctl`'s
+snapshot (its interface section; loopback and guests' taps are never
+matched). An `ethernets` entry with an IPv4 address is set with
+`IPV4_SET` (the network design, "A static address from user space"),
+which stops that interface's DHCP client, with its gateway as the default
+route's: `cosmo-seed: eth0 10.0.2.50/24 via 10.0.2.2`. An entry without an
+address keeps DHCP, and says so unless `dhcp4` is true; an entry naming no
+interface is said. Name servers (at most three, IPv4) are written to
+`/etc/resolv.conf` the way `netcfg` writes it; `netcfg` rewrites the file
+only from leases that name servers, so an interface left on DHCP whose
+lease names them replaces it. The kernel keeps no address across a boot,
+so this runs at every boot that has the seed; a seed removed later leaves
+the machine on DHCP. `cosmo-seed` exits 1 when a seed was found and
+something in it could not be applied, each said in its own line.
+
+The seed must be a disk the kernel reads: a virtio, AHCI, NVMe or USB
+disk. The kernel has no CD-ROM driver, so a seed a hypervisor presents as
+a CD is not seen (`tools/mkseed.py` writes one to attach as a disk).
 
 ### The proof
 

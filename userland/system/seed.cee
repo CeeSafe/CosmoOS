@@ -1,0 +1,1349 @@
+// seed.cee - a cloud-init NoCloud seed, read from a block device's sectors with no file system mounted, and the YAML
+// subset its files are written in (roadmap 1.3 R2; docs/userland/design.md, "First boot without a console"). In
+// CeeSafe, as new user code is (docs/build/ceesafe.md, "User programs"): linked into cosmo-seed (cosmo-seed.cee) and,
+// for the host test, into tests/host/test_seed.c; both declare the exports below themselves.
+//
+// A seed is an ISO 9660 volume whose primary volume identifier is `cidata`, or a FAT12, FAT16 or FAT32 volume
+// labelled `cidata` (either case). Its files are in the root directory. Everything read from the device is untrusted:
+// every offset, length, count and cluster number is checked against the device and the buffers before it is used,
+// and a volume that fails a check is "not a seed" or a read error. Sectors are 512 bytes here; the caller's reader
+// converts to the device's own size. No allocation: the probe's layout and the YAML documents are statics, one seed
+// and three documents at a time (a program is one thread).
+//
+// The YAML: block maps, block lists (an item may itself be a map: "- to: x" with "  via: y" under it), flow lists of
+// scalars ("[a, b]"), plain, single- and double-quoted scalars, and comments. Anything else -- anchors, tags, block
+// scalars ("|", ">"), flow maps, tabs for indentation, a second document -- is a parse error, and the caller skips the
+// file. The parser works in the caller's buffer (scalars are NUL-terminated in place).
+
+@header("errno.h", "string.h")
+extern "C" {
+    @effects()
+    fn strlen(s: *CChar) -> usize;
+    @cvalue("ENOENT")
+    const ENOENT: i32 = 2;
+    @cvalue("EIO")
+    const EIO: i32 = 5;
+    @cvalue("EINVAL")
+    const EINVAL: i32 = 22;
+    @cvalue("EFBIG")
+    const EFBIG: i32 = 27;
+}
+
+const SECTOR: u64 = 512;
+/// The largest seed file read.
+const FILE_MAX: usize = 65536;
+const KIND_NONE: i32 = 0;
+const KIND_ISO: i32 = 1;
+const KIND_FAT: i32 = 2;
+const ISO_BLOCK: u64 = 2048;
+/// The largest root directory read.
+const ISO_DIR_MAX: u64 = 1048576;
+/// The most entries a FAT directory has (the specification's limit; a FAT32 root's chain is walked no further).
+const FAT_DIR_ENTRIES_MAX: u64 = 65536;
+
+// ---- The device ----
+
+/// The reader a probe was given, and the device's size: `read(ctx, lba, count, buf)` fills `buf` with `count`
+/// 512-byte sectors from `lba`, 0, or nonzero when it cannot (past the end included).
+/// Safety: none; it reads nothing.
+@callback
+unsafe fn noRead(ctx: *mut void, lba: u64, count: u32, buf: *mut void) -> i32 => -1;
+static mut READ: extern "C" fn(*mut void, u64, u32, *mut void) -> i32 = noRead;
+static mut CTX: *mut void = 0 as *mut void;
+static mut SECTORS: u64 = 0;
+
+/// What a probe found.
+struct Layout {
+    kind: i32;
+    isoRootLba: u64; // in 512-byte sectors: the root directory to read names from (Joliet's when there is one)
+    isoRootLen: u32; // bytes
+    isoJoliet: bool;
+    fatBits: u32; // 12, 16 or 32
+    spc: u32;     // sectors per cluster
+    fatLba: u64;  // the first FAT
+    fatSectors: u32;
+    rootLba: u64; // FAT12/16: the fixed root directory
+    rootEntries: u32;
+    rootCluster: u32; // FAT32
+    dataLba: u64;     // cluster 2
+    clusters: u32;    // data clusters: valid numbers are 2 .. clusters + 1
+}
+
+static mut L: Layout = Layout {
+    kind: 0,
+    isoRootLba: 0,
+    isoRootLen: 0,
+    isoJoliet: false,
+    fatBits: 0,
+    spc: 0,
+    fatLba: 0,
+    fatSectors: 0,
+    rootLba: 0,
+    rootEntries: 0,
+    rootCluster: 0,
+    dataLba: 0,
+    clusters: 0,
+};
+
+/// Safety: a program is one thread; nothing else holds the layout.
+unsafe fn lay() -> borrow mut(static) Layout => Ptr.toBorrowMut(borrow mut L as *mut Layout);
+
+fn le16(b: Slice<u8>, at: usize) -> u32 => (b[at] as u32) | ((b[at + 1] as u32) << 8);
+fn le32(b: Slice<u8>, at: usize) -> u32 =>
+    (b[at] as u32) | ((b[at + 1] as u32) << 8) | ((b[at + 2] as u32) << 16) | ((b[at + 3] as u32) << 24);
+
+fn lower(c: u8) -> u8 => if (c >= 'A' as u8 && c <= 'Z' as u8) c + 32 else c;
+
+fn sameCi(a: Slice<u8>, b: Slice<u8>) -> bool {
+    if (a.length != b.length) {
+        return false;
+    }
+    for (i in 0..a.length) {
+        if (lower(a[i]) != lower(b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// A terminated string's bytes.
+/// Safety: `s` is a terminated string.
+unsafe fn cBytes(s: *CChar) -> Slice<static, u8> => Slice.fromRaw(s as *u8, strlen(s));
+
+/// `out.length` bytes at byte `off` of the device: -EIO past its end or on a failed read.
+/// Safety: as lay.
+unsafe fn rd(off0: u64, out: SliceMut<u8>) -> i32 {
+    var sec = [0u8; 512];
+    let size = SECTORS * SECTOR;
+    let n0 = out.length as u64;
+    if (off0 > size || n0 > size - off0) {
+        return -EIO;
+    }
+    var off = off0;
+    var done: usize = 0;
+    while (done < out.length) {
+        let lba = off / SECTOR;
+        let at = truncate<usize>(off % SECTOR);
+        let left = out.length - done;
+        let take = if (512 - at < left) 512 - at else left;
+        let f = READ;
+        if (f(CTX, lba, 1, borrow mut sec as *mut [u8; 512] as *mut void) != 0) {
+            return -EIO;
+        }
+        out[done..done + take].copyFrom(sec[at..at + take]);
+        done += take;
+        off += take as u64;
+    }
+    return 0;
+}
+
+/// Whether `len` bytes at byte `off` lie on the device.
+/// Safety: as lay.
+unsafe fn onDevice(off: u64, len: u64) -> bool {
+    let size = SECTORS * SECTOR;
+    return off <= size && len <= size - off;
+}
+
+/// An 11- or 32-byte label padded with spaces (or NULs) is `cidata`.
+fn isCidata(p: Slice<u8>) -> bool {
+    var n = p.length;
+    while (n > 0 && (p[n - 1] == ' ' as u8 || p[n - 1] == 0)) {
+        n -= 1;
+    }
+    return sameCi(p[..n], "cidata".bytes());
+}
+
+// ---- ISO 9660 (ECMA-119), with Joliet and Rock Ridge names ----
+
+/// A directory record's extent and length, checked to lie on the device.
+/// Safety: as lay.
+unsafe fn isoExtent(rec: Slice<u8>, off: borrow mut u64, len: borrow mut u32) -> bool {
+    let extent = le32(rec, 2) as u64;
+    len = le32(rec, 10);
+    off = extent * ISO_BLOCK;
+    return onDevice(off, len as u64);
+}
+
+/// Safety: as lay.
+unsafe fn probeIso() -> i32 {
+    var vd = [0u8; 2048];
+    var seed = false;
+    var joliet = false;
+    var root = [0u8; 34];
+    var jroot = [0u8; 34];
+    for (i in 0u64..32) {
+        if (rd((16 + i) * ISO_BLOCK, mut vd[..]) != 0) {
+            return if (i == 0) KIND_NONE else -1; // a device too small for a descriptor is not an ISO
+        }
+        if (vd[1..6] != "CD001".bytes() || vd[6] != 1) {
+            break;
+        }
+        if (vd[0] == 255) {
+            break;
+        }
+        if (vd[0] == 1 && !seed && isCidata(vd[40..72])) {
+            seed = true;
+            root[..].copyFrom(vd[156..190]);
+        } else if (vd[0] == 2 && vd[88] == '%' as u8 && vd[89] == '/' as u8 &&
+            (vd[90] == '@' as u8 || vd[90] == 'C' as u8 || vd[90] == 'E' as u8)) {
+            joliet = true;
+            jroot[..].copyFrom(vd[156..190]);
+        }
+    }
+    if (!seed) {
+        return KIND_NONE;
+    }
+    let use = if (joliet) jroot else root;
+    var off: u64 = 0;
+    var len: u32 = 0;
+    if (use[0] < 34 || !isoExtent(use[..], mut off, mut len) || len == 0 || len as u64 > ISO_DIR_MAX ||
+        off % SECTOR != 0) {
+        return KIND_NONE;
+    }
+    let l = lay();
+    l.kind = KIND_ISO;
+    l.isoRootLba = off / SECTOR;
+    l.isoRootLen = len;
+    l.isoJoliet = joliet;
+    return KIND_ISO;
+}
+
+/// A record's name into `out`: Joliet's UCS-2, else a Rock Ridge NM, else the ISO name; a version (";1") and an ISO
+/// name's trailing '.' are dropped. Its length, or -1 when the record is inconsistent.
+fn isoName(rec: Slice<u8>, joliet: bool, out: borrow mut [u8; 256]) -> i32 {
+    let nl = truncate<usize>(rec[32]);
+    if (33 + nl > rec.length) {
+        return -1;
+    }
+    var n: usize = 0;
+    if (joliet) {
+        if (nl % 2 != 0) {
+            return -1;
+        }
+        var i: usize = 0;
+        while (i + 1 < nl && n < 255) {
+            let hi = rec[33 + i];
+            let lo = rec[33 + i + 1];
+            out[n] = if (hi == 0 && lo < 128) lo else '?' as u8;
+            n += 1;
+            i += 2;
+        }
+    } else {
+        // System use: after the name and a pad byte when its length is even.
+        var su = 33 + nl + (if (nl % 2 == 0) 1usize else 0usize);
+        var rr = false;
+        while (su + 4 <= rec.length) {
+            let elen = truncate<usize>(rec[su + 2]);
+            if (elen < 4 || su + elen > rec.length) {
+                break;
+            }
+            if (rec[su] == 'N' as u8 && rec[su + 1] == 'M' as u8 && elen >= 5 && (rec[su + 4] & 6) == 0) {
+                for (i in 5..elen) {
+                    if (n >= 255) {
+                        break;
+                    }
+                    out[n] = rec[su + i];
+                    n += 1;
+                }
+                rr = true;
+            }
+            su += elen;
+        }
+        if (rr) {
+            return truncate<i32>(n);
+        }
+        // An ISO name cannot hold '-' (d-characters): mkisofs-style tools write '_' for it.
+        for (i in 0..nl) {
+            if (n >= 255) {
+                break;
+            }
+            let c = rec[33 + i];
+            out[n] = if (c == '_' as u8) '-' as u8 else c;
+            n += 1;
+        }
+    }
+    for (i in 0..n) {
+        if (out[i] == ';' as u8) {
+            n = i;
+            break;
+        }
+    }
+    if (!joliet && n > 0 && out[n - 1] == '.' as u8) {
+        n -= 1;
+    }
+    return truncate<i32>(n);
+}
+
+/// Safety: as lay.
+unsafe fn isoFile(name: Slice<u8>, buf: SliceMut<u8>, len: borrow mut usize) -> i32 {
+    var blk = [0u8; 2048];
+    let l = lay();
+    let base = l.isoRootLba * SECTOR;
+    var at: u32 = 0;
+    while (at < l.isoRootLen) {
+        let span = if (l.isoRootLen - at < 2048) (l.isoRootLen - at) as usize else 2048;
+        if (rd(base + at as u64, mut blk[..span]) != 0) {
+            return -EIO;
+        }
+        var pos: usize = 0;
+        while (pos < span) {
+            let rl = truncate<usize>(blk[pos]);
+            if (rl == 0) {
+                break; // the rest of this block is padding
+            }
+            if (rl < 34 || pos + rl > span) {
+                return -EINVAL;
+            }
+            let rec = blk[pos..pos + rl];
+            pos += rl;
+            if ((rec[25] & 2) != 0) {
+                continue; // a directory: ".", ".." or a subdirectory
+            }
+            var got = [0u8; 256];
+            let gl = isoName(rec, l.isoJoliet, mut got);
+            if (gl < 0) {
+                return -EINVAL;
+            }
+            if (!sameCi(got[..truncate<usize>(gl)], name)) {
+                continue;
+            }
+            if ((rec[25] & 0x80) != 0) {
+                return -EINVAL; // a file in several extents: not something a seed needs
+            }
+            var off: u64 = 0;
+            var flen: u32 = 0;
+            if (!isoExtent(rec, mut off, mut flen)) {
+                return -EINVAL;
+            }
+            if (truncate<usize>(flen) > buf.length) {
+                return -EFBIG;
+            }
+            if (rd(off, mut buf[..truncate<usize>(flen)]) != 0) {
+                return -EIO;
+            }
+            len = truncate<usize>(flen);
+            return 0;
+        }
+        at += 2048;
+    }
+    return -ENOENT;
+}
+
+// ---- FAT12, FAT16, FAT32 ----
+
+/// Safety: as lay.
+unsafe fn probeFat() -> i32 {
+    var b = [0u8; 512];
+    if (SECTORS < 1 || rd(0, mut b[..]) != 0) {
+        return -1;
+    }
+    if (b[510] != 0x55 || b[511] != 0xAA || le16(b[..], 11) != 512) {
+        return KIND_NONE;
+    }
+    let spc = b[13] as u32;
+    let rsvd = le16(b[..], 14);
+    let nfats = b[16] as u32;
+    let rootent = le16(b[..], 17);
+    if (spc == 0 || (spc & (spc - 1)) != 0 || spc > 128 || rsvd == 0 || nfats == 0 || nfats > 4) {
+        return KIND_NONE;
+    }
+    let total = (if (le16(b[..], 19) != 0) le16(b[..], 19) else le32(b[..], 32)) as u64;
+    let fatsz = if (le16(b[..], 22) != 0) le16(b[..], 22) else le32(b[..], 36);
+    let rootsecs = (rootent as u64 * 32 + 511) / 512;
+    let first = rsvd as u64 + nfats as u64 * fatsz as u64 + rootsecs;
+    if (fatsz == 0 || total > SECTORS || first >= total) {
+        return KIND_NONE;
+    }
+    let clusters = truncate<u32>((total - first) / spc as u64);
+    let bits: u32 = if (clusters < 4085) 12 else if (clusters < 65525) 16 else 32;
+    if (bits == 32 && (rootent != 0 || le16(b[..], 22) != 0)) {
+        return KIND_NONE;
+    }
+    if (bits != 32 && rootent == 0) {
+        return KIND_NONE;
+    }
+    // The FAT must hold an entry for every cluster.
+    if (fatsz as u64 * 512 * 8 / bits as u64 < clusters as u64 + 2) {
+        return KIND_NONE;
+    }
+    let l = lay();
+    l.fatBits = bits;
+    l.spc = spc;
+    l.fatLba = rsvd as u64;
+    l.fatSectors = fatsz;
+    l.rootLba = rsvd as u64 + nfats as u64 * fatsz as u64;
+    l.rootEntries = rootent;
+    l.rootCluster = if (bits == 32) le32(b[..], 44) else 0;
+    l.dataLba = first;
+    l.clusters = clusters;
+    if (bits == 32 && (l.rootCluster < 2 || l.rootCluster as u64 > clusters as u64 + 1)) {
+        return KIND_NONE;
+    }
+    l.kind = KIND_FAT;
+    if (bits == 32) {
+        if (b[66] == 0x29 && isCidata(b[71..82])) {
+            return KIND_FAT;
+        }
+    } else if (b[38] == 0x29 && isCidata(b[43..54])) {
+        return KIND_FAT;
+    }
+    // Or the root directory's volume label entry.
+    var none = [0u8; 1];
+    var len: usize = 0;
+    let rc = fatFile("".bytes(), true, mut none[..0], mut len);
+    if (rc == 0) {
+        return KIND_FAT;
+    }
+    let lk = lay();
+    lk.kind = KIND_NONE;
+    return if (rc == -EIO) -1 else KIND_NONE;
+}
+
+/// The FAT's entry for cluster `c`, or -1 when it cannot be read.
+/// Safety: as lay.
+unsafe fn fatNext(c: u32) -> i64 {
+    let l = lay();
+    let cc = c as u64;
+    let off = if (l.fatBits == 12) cc + cc / 2 else if (l.fatBits == 16) 2 * cc else 4 * cc;
+    var v = [0u8; 4];
+    let n: usize = if (l.fatBits == 32) 4 else 2;
+    if (off + n as u64 > l.fatSectors as u64 * SECTOR || rd(l.fatLba * SECTOR + off, mut v[..n]) != 0) {
+        return -1;
+    }
+    if (l.fatBits == 12) {
+        return (if ((c & 1) != 0) le16(v[..], 0) >> 4 else le16(v[..], 0) & 0xFFF) as i64;
+    }
+    if (l.fatBits == 16) {
+        return le16(v[..], 0) as i64;
+    }
+    return (le32(v[..], 0) & 0x0FFFFFFF) as i64;
+}
+
+/// Safety: as lay.
+unsafe fn fatEoc(v: i64) -> bool {
+    let bits = lay().fatBits;
+    return if (bits == 12) v >= 0xFF8 else if (bits == 16) v >= 0xFFF8 else v >= 0x0FFFFFF8;
+}
+
+/// Safety: as lay.
+unsafe fn clusterOk(c: i64) -> bool => c >= 2 && c <= (lay().clusters as i64) + 1;
+
+/// Safety: as lay; `c` passed clusterOk.
+unsafe fn clusterOff(c: u32) -> u64 => (lay().dataLba + (c as u64 - 2) * lay().spc as u64) * SECTOR;
+
+/// A long name being gathered from its entries, which come before the short entry, last part first.
+struct Lfn {
+    name: [u8; 256];
+    next: u32; // the sequence number expected next (counting down)
+    sum: u8;
+    ok: bool;
+}
+
+fn shortSum(e: Slice<u8>) -> u8 {
+    var s: u8 = 0;
+    for (i in 0..11usize) {
+        s = (((s & 1) << 7) + (s >> 1)).wrappingAdd(e[i]);
+    }
+    return s;
+}
+
+/// The positions of a long-name entry's 13 UCS-2 characters.
+const LFN_AT: [u8; 13] = [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30];
+
+fn lfnTake(l: borrow mut Lfn, e: Slice<u8>) {
+    let seq = (e[0] & 0x1F) as u32;
+    if ((e[0] & 0x40) != 0) {
+        l.name = [0; 256];
+        l.next = 0;
+        l.sum = 0;
+        l.ok = false;
+        if (seq == 0 || seq > 19) {
+            return;
+        }
+        l.next = seq;
+        l.sum = e[13];
+        l.ok = true;
+    }
+    if (!l.ok || seq != l.next || e[13] != l.sum) {
+        l.ok = false;
+        return;
+    }
+    let at = LFN_AT;
+    for (i in 0..13usize) {
+        let ch = le16(e, truncate<usize>(at[i]));
+        let pos = (truncate<usize>(seq) - 1) * 13 + i;
+        if (pos >= 255) {
+            break;
+        }
+        l.name[pos] = if (ch == 0 || ch == 0xFFFF) 0 else if (ch < 128) truncate<u8>(ch) else '?' as u8;
+    }
+    l.next -= 1;
+}
+
+/// One 32-byte directory entry against `name` (or, `label`, the volume label entry reading `cidata`): 1 matched (its
+/// first cluster and size out), 0 not, -1 the end.
+fn fatEntry(
+    e: Slice<u8>, l: borrow mut Lfn, name: Slice<u8>, label: bool, cluster: borrow mut u32, size: borrow mut u32,
+    bits: u32,
+) -> i32 {
+    if (e[0] == 0) {
+        return -1;
+    }
+    if (e[0] == 0xE5) {
+        l.ok = false;
+        return 0;
+    }
+    if (e[11] == 0x0F) {
+        lfnTake(l, e);
+        return 0;
+    }
+    let useLfn = l.ok && l.next == 0 && l.sum == shortSum(e);
+    l.ok = false;
+    if ((e[11] & 0x08) != 0) {
+        return if (label && isCidata(e[..11])) 1 else 0;
+    }
+    if (label || (e[11] & 0x10) != 0) {
+        return 0; // a directory, or a file while the label is wanted
+    }
+    var got = [0u8; 256];
+    var n: usize = 0;
+    if (useLfn) {
+        while (n < 255 && l.name[n] != 0) {
+            got[n] = l.name[n];
+            n += 1;
+        }
+    } else {
+        for (i in 0..8usize) {
+            if (e[i] == ' ' as u8) {
+                break;
+            }
+            got[n] = if (i == 0 && e[0] == 0x05) 0xE5 else e[i];
+            n += 1;
+        }
+        if (e[8] != ' ' as u8) {
+            got[n] = '.' as u8;
+            n += 1;
+            for (i in 8..11usize) {
+                if (e[i] == ' ' as u8) {
+                    break;
+                }
+                got[n] = e[i];
+                n += 1;
+            }
+        }
+    }
+    if (!sameCi(got[..n], name)) {
+        return 0;
+    }
+    cluster = (if (bits == 32) le16(e, 20) << 16 else 0) | le16(e, 26);
+    size = le32(e, 28);
+    return 1;
+}
+
+/// Safety: as lay.
+unsafe fn fatReadChain(c0: u32, size: u32, buf: SliceMut<u8>) -> i32 {
+    let csize = lay().spc as u64 * SECTOR;
+    var c = c0;
+    var done: u32 = 0;
+    var steps: usize = 0;
+    var seen = [0u32; 128]; // a file of at most 64 KiB has at most this many clusters
+    while (done < size) {
+        if (!clusterOk(truncate<i64>(c)) || steps >= 128) {
+            return -EINVAL;
+        }
+        for (k in 0..steps) {
+            if (seen[k] == c) {
+                return -EINVAL; // the chain comes back on itself
+            }
+        }
+        seen[steps] = c;
+        steps += 1;
+        let left = (size - done) as u64;
+        let take = truncate<usize>(if (left < csize) left else csize);
+        if (rd(clusterOff(c), mut buf[truncate<usize>(done)..truncate<usize>(done) + take]) != 0) {
+            return -EIO;
+        }
+        done += truncate<u32>(take as u64);
+        if (done == size) {
+            break;
+        }
+        let nx = fatNext(c);
+        if (nx < 0) {
+            return -EIO;
+        }
+        if (fatEoc(nx)) {
+            return -EINVAL; // the chain ends before the file
+        }
+        c = truncate<u32>(nx);
+    }
+    return 0;
+}
+
+/// Safety: as lay.
+unsafe fn fatFile(name: Slice<u8>, label: bool, buf: SliceMut<u8>, len: borrow mut usize) -> i32 {
+    var sec = [0u8; 512];
+    var l = Lfn { name: [0; 256], next: 0, sum: 0, ok: false };
+    var cluster: u32 = 0;
+    var size: u32 = 0;
+    var found: i32 = 0;
+    let lt = lay();
+    if (lt.fatBits != 32) {
+        var i: u32 = 0;
+        while (i < lt.rootEntries && found == 0) {
+            if (i % 16 == 0 && rd((lt.rootLba + (i / 16) as u64) * SECTOR, mut sec[..]) != 0) {
+                return -EIO;
+            }
+            let at = (i % 16) as usize * 32;
+            found = fatEntry(sec[at..at + 32], mut l, name, label, mut cluster, mut size, lt.fatBits);
+            i += 1;
+        }
+    } else {
+        // A FAT directory holds at most 65536 entries (the specification's limit): a root chain longer than that
+        // -- a loop with no end mark, on a disk of millions of clusters -- is refused after that many, not after
+        // a walk of every cluster.
+        var c = lt.rootCluster;
+        var entries: u64 = 0;
+        while (found == 0) {
+            if (!clusterOk(truncate<i64>(c)) || entries >= FAT_DIR_ENTRIES_MAX) {
+                return -EINVAL;
+            }
+            entries += lt.spc as u64 * 16;
+            var s: u32 = 0;
+            while (s < lt.spc && found == 0) {
+                if (rd(clusterOff(c) + s as u64 * SECTOR, mut sec[..]) != 0) {
+                    return -EIO;
+                }
+                var k: usize = 0;
+                while (k < 16 && found == 0) {
+                    found = fatEntry(sec[k * 32..k * 32 + 32], mut l, name, label, mut cluster, mut size, 32);
+                    k += 1;
+                }
+                s += 1;
+            }
+            if (found != 0) {
+                break;
+            }
+            let nx = fatNext(c);
+            if (nx < 0) {
+                return -EIO;
+            }
+            if (fatEoc(nx)) {
+                break;
+            }
+            c = truncate<u32>(nx);
+        }
+    }
+    if (found != 1) {
+        return -ENOENT;
+    }
+    if (label) {
+        len = 0;
+        return 0;
+    }
+    if (truncate<usize>(size) > buf.length) {
+        return -EFBIG;
+    }
+    if (size > 0) {
+        let rc = fatReadChain(cluster, size, buf);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+    len = truncate<usize>(size);
+    return 0;
+}
+
+// ---- The seed's API ----
+
+/// Whether the device `read` reads (`sectors` 512-byte sectors) holds a seed: 1 (ISO 9660) or 2 (FAT), the layout kept
+/// for seed_file; 0 none; -1 when the device could not be read.
+/// Safety: `read` is a reader as above; `ctx` is what it wants.
+@export("seed_probe")
+unsafe fn probe(read: extern "C" fn(*mut void, u64, u32, *mut void) -> i32, ctx: *mut void, sectors: u64) -> i32 {
+    READ = read;
+    CTX = ctx;
+    SECTORS = sectors;
+    let lk = lay();
+    lk.kind = KIND_NONE;
+    let rc = probeIso();
+    if (rc != KIND_NONE) {
+        return rc;
+    }
+    return probeFat();
+}
+
+/// The root directory file `name` (compared ignoring case) of the last seed probed, into `buf` (at most `max` bytes,
+/// at most 64 KiB); its length in *len. 0, -ENOENT, -EFBIG (longer than max), -EIO (a read failed) or -EINVAL (the
+/// volume's structures are inconsistent, or no seed was found).
+/// Safety: `name` is a terminated string; `buf` holds `max` bytes; `len` is writable.
+@export("seed_file")
+unsafe fn file(name: *CChar, buf: *mut u8, max0: usize, len: *mut usize) -> i32 {
+    let max = if (max0 > FILE_MAX) FILE_MAX else max0;
+    len.write(0);
+    let out = SliceMut.fromRaw(buf, max);
+    var got: usize = 0;
+    var rc = -EINVAL;
+    if (lay().kind == KIND_ISO) {
+        rc = isoFile(cBytes(name), out, mut got);
+    } else if (lay().kind == KIND_FAT) {
+        rc = fatFile(cBytes(name), false, out, mut got);
+    }
+    len.write(got);
+    return rc;
+}
+
+// ---- The YAML subset ----
+
+const YAML_SCALAR: i32 = 1;
+const YAML_MAP: i32 = 2;
+const YAML_LIST: i32 = 3;
+const NODES_MAX: usize = 512;
+const LINES_MAX: usize = 1024;
+/// Documents parsed at once: cosmo-seed's meta-data, user-data and network-config.
+const DOCS: usize = 3;
+
+/// A node: a scalar, a map or a list; a map's entries and a list's items are its children, in order. Its key (an
+/// entry of a map) and text (a scalar's) are offsets into the parsed text, terminated in place; -1 for none.
+struct Node {
+    kind: i32;
+    key: i64;
+    text: i64;
+    child: i32;
+    next: i32;
+}
+
+struct Doc {
+    node: [Node; 512];
+    count: i32;
+    root: i32;      // -1: an empty document
+    errorLine: i32; // from 1, when the parse failed
+    error: *CChar;
+    base: *mut u8; // the text
+}
+
+static mut DOC: [Doc; 3] = [Doc {
+    node: [Node { kind: 0, key: -1, text: -1, child: -1, next: -1 }; 512],
+    count: 0,
+    root: -1,
+    errorLine: 0,
+    error: 0 as *CChar,
+    base: 0 as *mut u8,
+}; 3];
+
+/// A line of the document: its indentation, where its content starts (comment and trailing blanks removed), its number.
+struct Line {
+    indent: usize;
+    s: usize;
+    no: i32;
+}
+
+static mut LINES: [Line; 1024] = [Line { indent: 0, s: 0, no: 0 }; 1024];
+static mut NLINES: usize = 0;
+static mut AT: usize = 0;   // the line the parse is at
+static mut CUR: usize = 0;  // the document being parsed
+static mut TLEN: usize = 0; // the text's length, its terminator not counted
+
+/// Safety: as lay.
+unsafe fn doc() -> borrow mut(static) Doc => Ptr.toBorrowMut((borrow mut DOC as *mut [Doc; 3] as *mut Doc).add(CUR));
+
+/// The text being parsed, its terminator included.
+/// Safety: as lay; a parse is under way.
+unsafe fn tx() -> SliceMut<static, u8> => SliceMut.fromRaw(doc().base, TLEN + 1);
+
+/// Safety: as lay.
+unsafe fn line(i: usize) -> borrow mut(static) Line =>
+    Ptr.toBorrowMut((borrow mut LINES as *mut [Line; 1024] as *mut Line).add(i));
+
+/// Safety: as tx.
+unsafe fn fail(no: i32, why: StringView) -> i32 {
+    let d = doc();
+    if (d.error.isNull()) {
+        d.error = why.ptr as *CChar;
+        d.errorLine = no;
+    }
+    return -1;
+}
+
+/// Safety: as tx.
+unsafe fn newNode(kind: i32, no: i32) -> i32 {
+    let d = doc();
+    if (truncate<usize>(d.count) >= NODES_MAX) {
+        return fail(no, "too many nodes\0");
+    }
+    let k = d.count;
+    d.count += 1;
+    d.node[truncate<usize>(k)] = Node { kind: kind, key: -1, text: -1, child: -1, next: -1 };
+    return k;
+}
+
+/// Safety: as tx.
+unsafe fn append(parent: i32, last: i32, k: i32) {
+    let d = doc();
+    if (last < 0) {
+        d.node[truncate<usize>(parent)].child = k;
+    } else {
+        d.node[truncate<usize>(last)].next = k;
+    }
+}
+
+/// The length of the string at `s`, to its terminator.
+/// Safety: as tx.
+unsafe fn lenAt(s: usize) -> usize {
+    let t = tx();
+    var n: usize = 0;
+    while (t[s + n] != 0) {
+        n += 1;
+    }
+    return n;
+}
+
+/// The first `c` at or after `s` before the terminator, or -1.
+/// Safety: as tx.
+unsafe fn find(s: usize, c: u8) -> i64 {
+    let t = tx();
+    var i = s;
+    while (t[i] != 0) {
+        if (t[i] == c) {
+            return truncate<i64>(i);
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+/// Blanks off both ends of the string at `s`, terminated in place; where it starts.
+/// Safety: as tx.
+unsafe fn trim(s0: usize) -> usize {
+    let t = tx();
+    var s = s0;
+    while (t[s] == ' ' as u8) {
+        s += 1;
+    }
+    var n = lenAt(s);
+    while (n > 0 && t[s + n - 1] == ' ' as u8) {
+        n -= 1;
+        t[s + n] = 0;
+    }
+    return s;
+}
+
+/// The closing quote of a quoted scalar starting at `s` (on the quote), or -1.
+/// Safety: as tx.
+unsafe fn quoteEnd(s: usize) -> i64 {
+    let t = tx();
+    let q = t[s];
+    var i = s + 1;
+    while (t[i] != 0) {
+        if (q == '"' as u8 && t[i] == '\\' as u8 && t[i + 1] != 0) {
+            i += 1;
+        } else if (t[i] == q) {
+            if (q == '\'' as u8 && t[i + 1] == '\'' as u8) {
+                i += 1;
+            } else {
+                return truncate<i64>(i);
+            }
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+fn isQuote(c: u8) -> bool => c == '\'' as u8 || c == '"' as u8;
+
+/// A scalar in place: quotes removed and escapes resolved; where it starts, or -1 with an error.
+/// Safety: as tx.
+unsafe fn scalar(s0: usize, no: i32) -> i64 {
+    let s = trim(s0);
+    let t = tx();
+    if (isQuote(t[s])) {
+        let end = quoteEnd(s);
+        if (end < 0 || t[trim(truncate<usize>(end) + 1)] != 0) {
+            return fail(no, "an unterminated quoted scalar or text after it\0") as i64;
+        }
+        let e = truncate<usize>(end);
+        let q = t[s];
+        var w = s;
+        var r = s + 1;
+        while (r < e) {
+            if (q == '\'' as u8 && t[r] == '\'' as u8) {
+                r += 1; // '' is one quote
+            } else if (q == '"' as u8 && t[r] == '\\' as u8) {
+                r += 1;
+                let c = if (t[r] == 'n' as u8) 10u8 else if (t[r] == 't' as u8) 9u8 else t[r];
+                if (c != 10 && c != 9 && c != '\\' as u8 && c != '"' as u8 && c != '/' as u8) {
+                    return fail(no, "an escape outside \\n \\t \\\\ \\\" \\/\0") as i64;
+                }
+                t[w] = c;
+                w += 1;
+                r += 1;
+                continue;
+            }
+            t[w] = t[r];
+            w += 1;
+            r += 1;
+        }
+        t[w] = 0;
+        return truncate<i64>(s);
+    }
+    let c = t[s];
+    if (c == '{' as u8 || c == '&' as u8 || c == '*' as u8 || c == '!' as u8 || c == '|' as u8 || c == '>' as u8 ||
+        c == '%' as u8 || c == '@' as u8 || c == '`' as u8) {
+        return fail(no, "a flow map, anchor, alias, tag or block scalar (not in the subset)\0") as i64;
+    }
+    var i = s;
+    while (t[i] != 0) {
+        if (t[i] == ':' as u8 && (t[i + 1] == ' ' as u8 || t[i + 1] == 0)) {
+            return fail(no, "a map inside a value on one line (not in the subset)\0") as i64;
+        }
+        i += 1;
+    }
+    return truncate<i64>(s);
+}
+
+/// Safety: as tx.
+unsafe fn scalarNode(s: usize, no: i32) -> i32 {
+    let at = scalar(s, no);
+    if (at < 0) {
+        return -1;
+    }
+    let k = newNode(YAML_SCALAR, no);
+    if (k >= 0) {
+        let dn = doc();
+        dn.node[truncate<usize>(k)].text = at;
+    }
+    return k;
+}
+
+/// A value on a line: a flow list or a scalar.
+/// Safety: as tx.
+unsafe fn inlineValue(s0: usize, no: i32) -> i32 {
+    let s = trim(s0);
+    let t = tx();
+    if (t[s] != '[' as u8) {
+        return scalarNode(s, no);
+    }
+    let n = lenAt(s);
+    if (t[s + n - 1] != ']' as u8) {
+        return fail(no, "a flow list without its ']'\0");
+    }
+    t[s + n - 1] = 0;
+    let list = newNode(YAML_LIST, no);
+    if (list < 0) {
+        return -1;
+    }
+    var last: i32 = -1;
+    var e = trim(s + 1);
+    if (t[e] == 0) {
+        return list;
+    }
+    while (true) {
+        var comma: i64 = -1;
+        if (isQuote(t[e])) {
+            let q = quoteEnd(e);
+            if (q < 0) {
+                return fail(no, "an unterminated quoted scalar\0");
+            }
+            comma = find(truncate<usize>(q), ',' as u8);
+        } else {
+            if (t[e] == '[' as u8) {
+                return fail(no, "a nested flow list (not in the subset)\0");
+            }
+            comma = find(e, ',' as u8);
+        }
+        if (comma >= 0) {
+            t[truncate<usize>(comma)] = 0;
+        }
+        let k = scalarNode(e, no);
+        if (k < 0) {
+            return -1;
+        }
+        append(list, last, k);
+        last = k;
+        if (comma < 0) {
+            return list;
+        }
+        e = trim(truncate<usize>(comma) + 1);
+    }
+    return list;
+}
+
+/// Safety: as tx.
+unsafe fn isDash(s: usize) -> bool {
+    let t = tx();
+    return t[s] == '-' as u8 && (t[s + 1] == ' ' as u8 || t[s + 1] == 0);
+}
+
+/// Where a "key:" ends (the colon), or -1: a colon followed by a blank or the line's end, after a plain or quoted key.
+/// Safety: as tx.
+unsafe fn keyColon(s: usize) -> i64 {
+    let t = tx();
+    if (isQuote(t[s])) {
+        let q = quoteEnd(s);
+        if (q < 0) {
+            return -1;
+        }
+        var i = truncate<usize>(q) + 1;
+        while (t[i] == ' ' as u8) {
+            i += 1;
+        }
+        return if (t[i] == ':' as u8 && (t[i + 1] == ' ' as u8 || t[i + 1] == 0)) truncate<i64>(i) else -1;
+    }
+    if (t[s] == '[' as u8 || t[s] == '{' as u8) {
+        return -1;
+    }
+    var i = s;
+    while (t[i] != 0) {
+        if (t[i] == ':' as u8 && (t[i + 1] == ' ' as u8 || t[i + 1] == 0)) {
+            return truncate<i64>(i);
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+/// Safety: as tx; the parse is at a line.
+unsafe fn parseList(ind: usize) -> i32 {
+    let k = newNode(YAML_LIST, line(AT).no);
+    if (k < 0) {
+        return -1;
+    }
+    var last: i32 = -1;
+    while (AT < NLINES && line(AT).indent == ind && isDash(line(AT).s)) {
+        let t = tx();
+        let l = line(AT);
+        var content = l.s + 1;
+        while (t[content] == ' ' as u8) {
+            content += 1;
+        }
+        var item: i32 = -1;
+        if (t[content] == 0) {
+            let no = l.no;
+            AT += 1;
+            if (AT < NLINES && line(AT).indent > ind) {
+                item = parseNode(line(AT).indent);
+            } else {
+                item = scalarNode(content, no);
+            }
+        } else {
+            // The item's content starts a node at its own column: "- to: x" then "  via: y".
+            l.indent += content - l.s;
+            l.s = content;
+            item = parseNode(l.indent);
+        }
+        if (item < 0) {
+            return -1;
+        }
+        append(k, last, item);
+        last = item;
+    }
+    if (AT < NLINES && line(AT).indent > ind) {
+        return fail(line(AT).no, "indentation that belongs to nothing\0");
+    }
+    return k;
+}
+
+/// Whether the terminated strings at offsets `a` and `b` of the document are equal.
+/// Safety: as tx.
+unsafe fn sameAt(a: usize, b: usize) -> bool {
+    let t = tx();
+    var i: usize = 0;
+    while (t[a + i] == t[b + i]) {
+        if (t[a + i] == 0) {
+            return true;
+        }
+        i += 1;
+    }
+    return false;
+}
+
+/// Safety: as tx; the parse is at a line.
+unsafe fn parseMap(ind: usize) -> i32 {
+    let k = newNode(YAML_MAP, line(AT).no);
+    if (k < 0) {
+        return -1;
+    }
+    var last: i32 = -1;
+    while (AT < NLINES && line(AT).indent == ind) {
+        let s = line(AT).s;
+        let no = line(AT).no;
+        if (isDash(s)) {
+            return fail(no, "a list item where a map entry was expected\0");
+        }
+        let colon = keyColon(s);
+        if (colon < 0) {
+            return fail(no, "a line that is not a map entry\0");
+        }
+        let tc = tx();
+        tc[truncate<usize>(colon)] = 0;
+        let key = scalar(s, no);
+        if (key < 0) {
+            return -1;
+        }
+        var e = doc().node[truncate<usize>(k)].child;
+        while (e >= 0) {
+            if (sameAt(truncate<usize>(doc().node[truncate<usize>(e)].key), truncate<usize>(key))) {
+                return fail(no, "a key given twice\0");
+            }
+            e = doc().node[truncate<usize>(e)].next;
+        }
+        let rest = trim(truncate<usize>(colon) + 1);
+        AT += 1;
+        var value: i32 = -1;
+        if (tx()[rest] != 0) {
+            value = inlineValue(rest, no);
+        } else if (AT < NLINES && line(AT).indent > ind) {
+            value = parseNode(line(AT).indent);
+        } else if (AT < NLINES && line(AT).indent == ind && isDash(line(AT).s)) {
+            value = parseList(ind); // "key:" then "- a" at the key's own column
+        } else {
+            value = scalarNode(rest, no); // empty: null
+        }
+        if (value < 0) {
+            return -1;
+        }
+        let dv = doc();
+        dv.node[truncate<usize>(value)].key = key;
+        append(k, last, value);
+        last = value;
+    }
+    if (AT < NLINES && line(AT).indent > ind) {
+        return fail(line(AT).no, "indentation that belongs to nothing\0");
+    }
+    return k;
+}
+
+/// Safety: as tx; the parse is at a line.
+unsafe fn parseNode(ind: usize) -> i32 {
+    let s = line(AT).s;
+    if (isDash(s)) {
+        return parseList(ind);
+    }
+    if (keyColon(s) >= 0) {
+        return parseMap(ind);
+    }
+    let no = line(AT).no;
+    AT += 1;
+    return inlineValue(s, no);
+}
+
+/// Whether the terminated string at `s` is `w`.
+/// Safety: as tx.
+unsafe fn isText(s: usize, w: Slice<u8>) -> bool {
+    let n = lenAt(s);
+    return n == w.length && tx()[s..s + n] == w;
+}
+
+/// Safety: as tx.
+unsafe fn parseText() -> i32 {
+    let t = tx();
+    var no: i32 = 0;
+    var started = false;
+    var s: usize = 0;
+    var more = true;
+    while (more) {
+        let nl = find(s, 10);
+        if (nl >= 0) {
+            t[truncate<usize>(nl)] = 0;
+        }
+        no += 1;
+        var len = lenAt(s);
+        if (len > 0 && t[s + len - 1] == 13) {
+            len -= 1;
+            t[s + len] = 0;
+        }
+        var ind: usize = 0;
+        while (t[s + ind] == ' ' as u8) {
+            ind += 1;
+        }
+        if (t[s + ind] == 9) {
+            return fail(no, "a tab in the indentation\0");
+        }
+        // The comment: a '#' at the start or after a blank, outside quotes.
+        let c0 = s + ind;
+        var q: u8 = 0;
+        var i = c0;
+        while (t[i] != 0) {
+            if (q != 0) {
+                if (q == '"' as u8 && t[i] == '\\' as u8 && t[i + 1] != 0) {
+                    i += 1;
+                } else if (t[i] == q) {
+                    q = 0;
+                }
+            } else if (isQuote(t[i]) && (i == c0 || t[i - 1] == ' ' as u8 || t[i - 1] == '[' as u8 ||
+                t[i - 1] == ',' as u8 || t[i - 1] == ':' as u8 || t[i - 1] == '-' as u8)) {
+                q = t[i];
+            } else if (t[i] == '#' as u8 && (i == c0 || t[i - 1] == ' ' as u8)) {
+                t[i] = 0;
+                break;
+            }
+            i += 1;
+        }
+        let c = trim(c0);
+        if (t[c] != 0) {
+            if (isText(c, "---".bytes()) || isText(c, "...".bytes())) {
+                if (started || isText(c, "...".bytes())) {
+                    return fail(no, "a second document (not in the subset)\0");
+                }
+            } else {
+                if (NLINES >= LINES_MAX) {
+                    return fail(no, "too many lines\0");
+                }
+                let l = line(NLINES);
+                l.indent = ind;
+                l.s = c;
+                l.no = no;
+                NLINES += 1;
+            }
+            started = true;
+        }
+        if (nl >= 0) {
+            s = truncate<usize>(nl) + 1;
+        } else {
+            more = false;
+        }
+    }
+    if (NLINES == 0) {
+        return 0;
+    }
+    let r = parseNode(line(0).indent);
+    if (r < 0) {
+        return -1;
+    }
+    if (AT < NLINES) {
+        return fail(line(AT).no, "indentation that belongs to nothing\0");
+    }
+    let dr = doc();
+    dr.root = r;
+    return 0;
+}
+
+/// Parse `text` (terminated, modified in place) into document `slot` (0, 1 or 2): 0, or -1 with yaml_error and
+/// yaml_error_line set.
+/// Safety: `text` is a writable terminated string that outlives the document's use.
+@export("yaml_parse")
+unsafe fn yamlParse(slot: u32, text: *mut CChar) -> i32 {
+    if (truncate<usize>(slot) >= DOCS) {
+        return -1;
+    }
+    CUR = truncate<usize>(slot);
+    let d = doc();
+    d.count = 0;
+    d.root = -1;
+    d.error = 0 as *CChar;
+    d.errorLine = 0;
+    d.base = text as *mut u8;
+    TLEN = strlen(text as *CChar);
+    NLINES = 0;
+    AT = 0;
+    return parseText();
+}
+
+/// Safety: as lay.
+unsafe fn docAt(slot: u32) -> borrow mut(static) Doc {
+    CUR = if (truncate<usize>(slot) >= DOCS) 0 else truncate<usize>(slot);
+    return doc();
+}
+
+/// Safety: as lay.
+@export("yaml_error_line")
+unsafe fn errorLine(slot: u32) -> i32 => docAt(slot).errorLine;
+
+/// Safety: as lay.
+@export("yaml_error")
+unsafe fn errorText(slot: u32) -> *CChar {
+    let e = docAt(slot).error;
+    return if (e.isNull()) "\0".ptr as *CChar else e;
+}
+
+/// Safety: as lay.
+@export("yaml_root")
+unsafe fn root(slot: u32) -> i32 => docAt(slot).root;
+
+/// Whether node `i` of document `slot` exists.
+/// Safety: as lay.
+unsafe fn has(slot: u32, i: i32) -> bool => truncate<usize>(slot) < DOCS && i >= 0 && i < docAt(slot).count;
+
+/// The node's type: 1 a scalar, 2 a map, 3 a list; 0 for no such node.
+/// Safety: as lay.
+@export("yaml_type")
+unsafe fn nodeType(slot: u32, i: i32) -> i32 => if (has(slot, i)) docAt(slot).node[truncate<usize>(i)].kind else 0;
+
+/// Safety: as lay.
+@export("yaml_child")
+unsafe fn child(slot: u32, i: i32) -> i32 => if (has(slot, i)) docAt(slot).node[truncate<usize>(i)].child else -1;
+
+/// Safety: as lay.
+@export("yaml_next")
+unsafe fn next(slot: u32, i: i32) -> i32 => if (has(slot, i)) docAt(slot).node[truncate<usize>(i)].next else -1;
+
+/// The string at offset `at` of document `slot`'s text: "" for -1.
+/// Safety: as lay; the document was parsed.
+unsafe fn textAt(slot: u32, at: i64) -> *CChar {
+    if (at < 0) {
+        return "\0".ptr as *CChar;
+    }
+    return docAt(slot).base.add(truncate<usize>(at)) as *CChar;
+}
+
+/// An entry's key, or null.
+/// Safety: as textAt.
+@export("yaml_key")
+unsafe fn key(slot: u32, i: i32) -> *CChar {
+    if (!has(slot, i) || docAt(slot).node[truncate<usize>(i)].key < 0) {
+        return 0 as *CChar;
+    }
+    return textAt(slot, docAt(slot).node[truncate<usize>(i)].key);
+}
+
+/// A scalar's text ("" for an empty one), or null for no such node.
+/// Safety: as textAt.
+@export("yaml_text")
+unsafe fn text(slot: u32, i: i32) -> *CChar {
+    if (!has(slot, i)) {
+        return 0 as *CChar;
+    }
+    return textAt(slot, docAt(slot).node[truncate<usize>(i)].text);
+}
+
+/// The node at `path` from `from` (-1: the root): map keys separated by '.', e.g. "nameservers.addresses". -1 when
+/// there is none.
+/// Safety: `path` is a terminated string; as textAt.
+@export("yaml_get")
+unsafe fn get(slot: u32, from: i32, path: *CChar) -> i32 {
+    if (truncate<usize>(slot) >= DOCS) {
+        return -1;
+    }
+    var at = if (from < 0) docAt(slot).root else from;
+    let p = cBytes(path);
+    var s: usize = 0;
+    while (at >= 0 && s < p.length) {
+        var end = s;
+        while (end < p.length && p[end] != '.' as u8) {
+            end += 1;
+        }
+        if (!has(slot, at) || docAt(slot).node[truncate<usize>(at)].kind != YAML_MAP) {
+            return -1;
+        }
+        var found: i32 = -1;
+        var e = docAt(slot).node[truncate<usize>(at)].child;
+        while (e >= 0) {
+            let k = cBytes(key(slot, e));
+            if (k == p[s..end]) {
+                found = e;
+                break;
+            }
+            e = docAt(slot).node[truncate<usize>(e)].next;
+        }
+        at = found;
+        s = if (end < p.length) end + 1 else end;
+    }
+    return at;
+}
+
+/// The scalar's text at `path`, or null (absent, or not a scalar).
+/// Safety: as get.
+@export("yaml_str")
+unsafe fn str(slot: u32, from: i32, path: *CChar) -> *CChar {
+    let k = get(slot, from, path);
+    return if (k >= 0 && nodeType(slot, k) == YAML_SCALAR) text(slot, k) else 0 as *CChar;
+}

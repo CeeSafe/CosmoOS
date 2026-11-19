@@ -279,7 +279,8 @@ MODCYCLE_ENTRY=modules/<name>.ko` cycles a driver 1,000 times.
 New user programs are CeeSafe too: the rule's gate (`scripts/cee-share.py`)
 counts `userland/`. A whole program is `userland/<dir>/<name>.cee` with a
 line in `PORTS`; `userland/userland.mk` lists it in `USER_CEE_PROGRAMS`.
-The first are `hostname` and `cosmo-grow` (roadmap 1.3 R2).
+The first are `hostname`, `sync`, `cosmo-grow` and `cosmo-seed` (roadmap 1.3 R2); `cosmo-seed` links a second
+port, `seed.cee`, through its C exports, which the host test links too.
 
 - **No `main` in freestanding CeeSafe** (N0293): the program exports
   `cosmo_program_main(argc, argv)`, and its link names that `main`
@@ -294,7 +295,8 @@ The first are `hostname` and `cosmo-grow` (roadmap 1.3 R2).
   variadic function is declared with `...` (`fn open(path: *CChar, flags:
   i32, ...) -> i32;`); a struct whose C name is reserved (stdio's `_FILE`)
   cannot be imported. Output is `TextWriter` (CeeSafe's core library) and
-  `write(2)`, not `printf`.
+  `write(2)`, not `printf`. errno cannot be read: `__errno_location` is a
+  reserved name (N0292), so a failure's reason is `perror`'s.
 - **Imported structs**: CeeSafe does not copy or build one but as a
   `static mut` initialiser, so a program's records live in a static and
   are filled field by field.
