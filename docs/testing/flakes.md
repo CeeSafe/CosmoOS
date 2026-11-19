@@ -140,7 +140,7 @@ the same time. Nothing was changed.
 
 **Fourth sighting, 2026-11-18:** `tests/host/test_quiesce.c:426`
 (`saw_new_cpu`) alone, in a `gmake -j4 host-test` on the developer's Mac
-during roadmap 1.3 R2's third PR (a static IPv4 address; `pipe_floor.c`
+during roadmap 1.3 R2's second PR (a static IPv4 address; `pipe_floor.c`
 into `pipe.cee`), the one-minute load average between 98 and 138 (other
 sessions' CeeSafe builds and applications). The next run of the same tree,
 the load at 38, passed. Nothing was changed.
@@ -5196,6 +5196,18 @@ instructions include `0xeceb33a: movl 0x4bc(%rip), %ecx`, and CPUs 1-3
 were halted at `0xeccf9e1` -- the sixth sighting's addresses. The
 firmware's own state again, on a kernel and archive of yet another size.
 Still not attributed.
+**Eighth sighting, 2026-11-19:** CI, PR #532 at `b1370163` (run
+44434544780, job 135260315189, `install test (x86_64)`), `test-snapshot`'s
+`install` boot, the first of the step: up to `paging: root at ...,
+9/14 pool pages used` (archive 20779008 bytes), then nothing (`no prompt
+after the first prompt before the deadline (301 s from launch; the last
+line at 2.8 s)`). The same job's `test-install` had passed. The files
+(artifact `test-install-x86_64`) agree with the sixth and seventh
+sightings': 32 requests and 29 pushes in the trace, the queue idle
+(`inuse` 0, `last_avail_idx` = `used_idx` = 29), CPU 0 running at
+`0xeceb370` and then `0xeceb319` (CR3 `0xf801000`), CPUs 1-3 halted at
+`0xeccf9e1`. The PR changes the DHCP client and tapctl, which run only
+after the kernel's first line. Still not attributed.
 
 ## `test-be`'s `be-space` boot on an encrypted root out of time, 2026-10-24
 
