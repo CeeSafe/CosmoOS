@@ -82,7 +82,25 @@ the CI image with the pinned ceesafec 0.57.1 and a fresh `out/`:
 | `test-smp2`, `test-chaos`, `test-harness-retry` | 238.1 / 239.1 / 244.0 s | 290.7 / 303.8 / 303.7 s |
 | release `test` | 19.0 s | 23.0 s |
 
-Branch CI: see the pull request.
+The review's fixes change compiled code, so the matrix ran again, on
+`b1370163`, in the same way:
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds, `cee-check`, `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 225.8 / 242.8 / 250.5 s | 274.3 / 286.3 / 304.1 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 239.4 / 241.8 / 246.3 s | 282.8 / 306.3 / 302.5 s |
+| release `test` | 19.1 s | 23.3 s |
+
+Branch CI on #532:
+- On `6adc7325` it passed.
+- On `b1370163` it failed in `install test (x86_64)`: the firmware RNG stop, before the kernel ran (flakes.md, its eighth sighting).
+- On `e543c787` it failed in `net-login` on both architectures, where `example.com` answered 403, and in `fsck test (x86_64)`, the firmware stop again (the ninth sighting). Both are recorded in flakes.md.
+- On `c954c788` it passed.
+
+The next PR's `make test-cloud` sets its address through `IPV4_SET` with
+these fixes, and passed on both architectures.
 
 ## Limits
 
