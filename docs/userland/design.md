@@ -926,7 +926,8 @@ their buffers before using it:
   the boot sector's label, or the root directory's volume label entry,
   `cidata`. VFAT long names (their checksum checked), else the 8.3 name;
   root directory only. A chain that leaves the cluster range, comes back on
-  itself or ends before the file is refused.
+  itself or ends before the file is refused; a FAT32 root directory is
+  walked to at most 65536 entries, a directory's limit.
 
 No seed: `cosmo-seed` prints nothing, exits 0, and the boot is as before.
 More than one: none is used, and one line names two of them. It reads
@@ -958,8 +959,9 @@ server's; it is written to `/etc/hostname` and `/var/lib/cloud/hostname`
 (each written beside and renamed over) and set with `sethostname`. Each
 key not already a line of `/root/.ssh/authorized_keys` is appended
 (`/root/.ssh` 0700, the file 0600, at most 64 KiB). Then the instance id
-is written; a later boot of the same instance says `instance <id> already
-applied`. `netcfg` does not apply a DHCP server's host name while
+is written, only if both applied (a failure leaves it unwritten, says
+`instance <id> not recorded`, and the next boot tries again); a later boot
+of the same instance says `instance <id> already applied`. `netcfg` does not apply a DHCP server's host name while
 `/var/lib/cloud/hostname` exists. A failure with a system error (a write,
 `sethostname`, a directory, `IPV4_SET`) is reported by `perror`, on the
 standard error: errno is libc's `__errno_location`, a name CeeSafe does not

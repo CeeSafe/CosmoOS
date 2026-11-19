@@ -38,6 +38,8 @@ const KIND_FAT: i32 = 2;
 const ISO_BLOCK: u64 = 2048;
 /// The largest root directory read.
 const ISO_DIR_MAX: u64 = 1048576;
+/// The most entries a FAT directory has (the specification's limit; a FAT32 root's chain is walked no further).
+const FAT_DIR_ENTRIES_MAX: u64 = 65536;
 
 // ---- The device ----
 
@@ -596,13 +598,16 @@ unsafe fn fatFile(name: Slice<u8>, label: bool, buf: SliceMut<u8>, len: borrow m
             i += 1;
         }
     } else {
+        // A FAT directory holds at most 65536 entries (the specification's limit): a root chain longer than that
+        // -- a loop with no end mark, on a disk of millions of clusters -- is refused after that many, not after
+        // a walk of every cluster.
         var c = lt.rootCluster;
-        var steps: u32 = 0;
+        var entries: u64 = 0;
         while (found == 0) {
-            steps += 1;
-            if (!clusterOk(truncate<i64>(c)) || steps > lt.clusters) {
+            if (!clusterOk(truncate<i64>(c)) || entries >= FAT_DIR_ENTRIES_MAX) {
                 return -EINVAL;
             }
+            entries += lt.spc as u64 * 16;
             var s: u32 = 0;
             while (s < lt.spc && found == 0) {
                 if (rd(clusterOff(c) + s as u64 * SECTOR, mut sec[..]) != 0) {

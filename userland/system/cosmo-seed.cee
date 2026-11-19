@@ -39,12 +39,18 @@ extern "C" {
         name: [u8; 16];
         fstype: [u8; 16];
     }
+    // Every field: LIST's records are this struct's size apart (96 bytes), and layoutOf is the stride.
     struct cosmo_blkctl_dev {
         name: [u8; 16];
         disk: [u8; 16];
         sectors: u64;
         sector_size: u32;
         flags: u32;
+        start: u64;
+        index: u32;
+        reserved: u32;
+        uuid: [u8; 16];
+        @cname("type") kind: [u8; 16];
     }
     struct cosmo_blkctl_list {
         version: u32;
@@ -192,7 +198,18 @@ struct State {
 static mut STATE: State = State {
     io: [0; 32832],
     res: [0; 65536],
-    devs: [cosmo_blkctl_dev { name: [0; 16], disk: [0; 16], sectors: 0, sector_size: 0, flags: 0 }; 128],
+    devs: [cosmo_blkctl_dev {
+        name: [0; 16],
+        disk: [0; 16],
+        sectors: 0,
+        sector_size: 0,
+        flags: 0,
+        start: 0,
+        index: 0,
+        reserved: 0,
+        uuid: [0; 16],
+        kind: [0; 16],
+    }; 128],
     ndevs: 0,
     sec: [0; 4096],
     raw: [0; 65537],
@@ -1265,6 +1282,10 @@ unsafe fn run(argc: i32, argv: *mut *mut CChar) -> i32 {
             fail(mut cl);
             return 1;
         }
+        // The instance is recorded only if all of it applied: a failure here (problem()) leaves it to the next boot.
+        let sw = st();
+        let was = sw.status;
+        sw.status = 0;
         var host = if (userOk) yaml_str(USER, -1, "hostname\0".ptr as *CChar) else 0 as *CChar;
         if (host.isNull()) {
             host = yaml_str(META, -1, "local-hostname\0".ptr as *CChar);
@@ -1275,11 +1296,22 @@ unsafe fn run(argc: i32, argv: *mut *mut CChar) -> i32 {
         if (userOk) {
             applyKeys(USER, yaml_get(USER, -1, "ssh_authorized_keys\0".ptr as *CChar));
         }
+        let sa = st();
+        let applied = sa.status == 0;
+        if (was != 0) {
+            sa.status = was;
+        }
         var text = [0u8; 256];
         let keep = if (iid.length < 250) iid.length else 250;
         text[..keep].copyFrom(iid[..keep]);
         text[keep] = 10;
-        if (writeWhole("/var/lib/cloud/instance-id\0".ptr as *CChar, text[..keep + 1], 420)) {
+        if (!applied) {
+            var nl = TextWriter.create(mut buffer[..]);
+            nl.text("cosmo-seed: instance ");
+            nl.bytes(iid);
+            nl.text(" not recorded: what failed is tried again at the next boot\n");
+            emit(borrow nl);
+        } else if (writeWhole("/var/lib/cloud/instance-id\0".ptr as *CChar, text[..keep + 1], 420)) {
             var al = TextWriter.create(mut buffer[..]);
             al.text("cosmo-seed: instance ");
             al.bytes(iid);

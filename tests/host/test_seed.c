@@ -40,10 +40,12 @@ enum { YAML_SCALAR = 1, YAML_MAP = 2, YAML_LIST = 3 };
 
 static FILE *g_img;
 static unsigned g_fails;
+static unsigned long g_reads;   /* the reader's calls, which `cat` prints to stderr */
 
 static int32_t file_read(void *ctx, uint64_t lba, uint32_t count, void *buf)
 {
     (void)ctx;
+    g_reads++;
     /* fseek, not fseeko: glibc hides fseeko under strict C, and a seed is small. */
     if (lba > (uint64_t)LONG_MAX / SEED_SECTOR || fseek(g_img, (long)(lba * SEED_SECTOR), SEEK_SET) != 0)
         return -1;
@@ -153,6 +155,7 @@ int main(int argc, char **argv)
         static uint8_t buf[SEED_FILE_MAX];
         size_t len;
         int rc = seed_file(argv[3], buf, sizeof(buf), &len);
+        fprintf(stderr, "reads=%lu\n", g_reads);
         if (rc != 0) {
             printf("error: %s\n", rc == -ENOENT ? "ENOENT" : rc == -EFBIG ? "EFBIG" : rc == -EIO ? "EIO" : "EINVAL");
             return 1;

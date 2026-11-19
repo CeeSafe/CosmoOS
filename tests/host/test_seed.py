@@ -13,6 +13,7 @@ network-config, an unknown key, and parse errors. Exit 0 when every check
 passes.
 """
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -143,6 +144,38 @@ def main():
         open(p, "wb").write(huge)
         rc, out = tool("cat", p, "meta-data")
         check(rc == 1 and out.strip() == b"error: EFBIG", "a file over 64 KiB is EFBIG, not read")
+
+        # FAT32: a root directory whose chain loops (cluster 2 -> 2) on a volume of 70000 clusters, every entry
+        # deleted, so no end mark stops the walk. Refused after a directory's 65536 entries (4096 one-sector
+        # clusters, two reads each), not after a walk of every cluster.
+        clusters32, fatsz32, rsvd32 = 70000, 548, 32
+        first32 = rsvd32 + 2 * fatsz32
+        total32 = first32 + clusters32
+        bs = bytearray(512)
+        bs[0:3] = b"\xEB\x58\x90"
+        struct.pack_into("<HBHBHHBHHHII", bs, 11, 512, 1, rsvd32, 2, 0, 0, 0xF8, 0, 32, 64, 0, total32)
+        struct.pack_into("<IHHI", bs, 36, fatsz32, 0, 0, 2)
+        bs[66] = 0x29
+        bs[71:82] = b"CIDATA     "
+        bs[82:90] = b"FAT32   "
+        bs[510:512] = b"\x55\xAA"
+        p = os.path.join(work, "root-loop32.img")
+        with open(p, "wb") as f:
+            f.truncate(total32 * 512)
+            f.write(bs)
+            for k in range(2):
+                f.seek((rsvd32 + k * fatsz32) * 512)
+                f.write(struct.pack("<III", 0x0FFFFFF8, 0x0FFFFFFF, 2))
+            f.seek(first32 * 512)
+            f.write(b"\xE5" + b"\x00" * 31)
+            f.write((b"\xE5" + b"\x00" * 31) * 15)
+        r = subprocess.run([sys.argv[1], "probe", p], capture_output=True)
+        check(r.stdout.strip() == b"fat", f"a FAT32 seed is FAT ({r.stdout.strip().decode()})")
+        r = subprocess.run([sys.argv[1], "cat", p, "meta-data"], capture_output=True)
+        m = re.search(rb"reads=(\d+)", r.stderr)
+        reads = int(m.group(1)) if m else -1
+        check(r.returncode == 1 and r.stdout.strip() == b"error: EINVAL" and 0 < reads <= 2 * 4096 + 16,
+              f"a FAT32 root chain that loops is EINVAL within a directory's entries ({reads} reads)")
 
         # The YAML subset, as cosmo-seed reads the three files.
         def yaml(text):

@@ -47,6 +47,28 @@ The new programs are CeeSafe. `netcfg.c`'s check (+4 lines) is offset by
 porting `userland/coreutils/sync.c` (9 lines) whole, as `sync.cee`. The
 gate: no tree has more C to convert than the base.
 
+### The review's fixes
+
+Codex on #533:
+
+- **P1, the device list's stride.** `cosmo-seed.cee` declared
+  `struct cosmo_blkctl_dev` with only its first five fields (48 bytes), and
+  `listDevices` stepped by that size through LIST's records, which are 96
+  bytes apart. Every device after the first was read from the middle of
+  the record before it. It now declares every field, as `cosmo-grow.cee`
+  does. The host tests do not build `cosmo-seed`; the next PR's `make
+  test-cloud` boots it with the boot disk, its two partitions and the seed.
+- **P2, the instance marker after a failure.** `instance-id` was written
+  even when the host name or the keys failed to apply, so the next boot of
+  the same instance applied nothing. Now the per-instance steps run with
+  the status cleared; if any failed, the marker is not written and one
+  line says `instance <id> not recorded`.
+- **P2, a FAT32 root chain that loops.** The walk stopped only after as
+  many clusters as the volume has. It now stops after a directory's 65536
+  entries. `test_seed.py` builds a FAT32 seed of 70000 clusters whose root
+  chain loops, with every entry deleted: refused after 8197 reads, where
+  the old reader made 140005 and failed the check.
+
 ## Proof
 
 The seed code's first run on a booted system is the next PR's `make
