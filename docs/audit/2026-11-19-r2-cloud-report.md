@@ -75,7 +75,7 @@ svc: dropbear started
 ```
 
 With the second PR's review fixes under it (`IPV4_SET` flushes the
-neighbours; a second `dhcp_client_stop` waits), on `bddcfb5b`, it passed
+neighbours; a second `dhcp_client_stop` waits; `b1370163`), it passed
 again: x86-64 11.9 / 12.7 / 12.0 s (37.0 s), AArch64 16.2 / 16.2 /
 16.5 s (49.2 s), with the same facts.
 
