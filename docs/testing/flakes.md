@@ -5233,6 +5233,19 @@ requests and 29 pushes, the queue idle at 29, CPU 0 running at
 `0xeceb370`, CPUs 1-3 halted at `0xeccf9e1`. Both of this PR's sightings
 read an archive of 20779008 bytes, in two different tests' boots; the
 sixth sighting's was 20107776 bytes.
+**Tenth sighting, 2026-11-19:** CI on main, #532's merge commit
+`5f25f805` (run 44457694608, job 135336822904, `upgrade test (x86_64)`),
+`test-be`'s `be-set` boot, after its `crash-intent` stage passed: up to
+`paging: root at 0xc2e1000 (user root 0x0), 9/14 pool pages used`
+(archive 20779008 bytes), then nothing (`no prompt after the first
+prompt before the deadline (301 s from launch; the last line at 2.2
+s)`). The same files as the eighth and ninth (artifact
+`test-upgrade-x86_64`): 32 requests and 29 pushes in the trace, the last
+request a 0-byte one; the queue idle (`inuse` 0, `last_avail_idx` =
+`used_idx` = 29); CPU 0 running at `0xeceb319` and then `0xeceb370` (CR3
+`0xf801000`), CPUs 1-3 halted at `0xeccf9e1`. The third sighting in one
+day, all three x86-64, all on that archive size. Still not attributed;
+the job was rerun.
 
 ## `test-mirror`'s `esp-repaired`: no line of the loader's on the console, 2026-11-19
 
