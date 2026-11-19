@@ -8,7 +8,7 @@ It adds R2's acceptance test and the image it boots, and ticks R2.
 The first three PRs made a grown disk keep its partitions and grow its
 root (#531), let user space set a static address, and read a NoCloud
 seed. What was missing: an image to give a cloud, and the test the roadmap
-names. The base is the third PR's head (`9b198db6`).
+names. The base is the third PR's head.
 
 ## What changed
 
@@ -73,6 +73,11 @@ cosmo-seed: eth0 10.0.2.50/24 via 10.0.2.2
 cosmo-seed: /etc/resolv.conf: 1 name server(s)
 svc: dropbear started
 ```
+
+With the second PR's review fixes under it (`IPV4_SET` flushes the
+neighbours; a second `dhcp_client_stop` waits), on `bddcfb5b`, it passed
+again: x86-64 11.9 / 12.7 / 12.0 s (37.0 s), AArch64 16.2 / 16.2 /
+16.5 s (49.2 s), with the same facts.
 
 The first run's `again` stage failed in the harness, not the system: the
 host key is recorded in `known_hosts` under the forwarded port, and the
