@@ -11,7 +11,8 @@ system unchanged.
 The first PR (#535) made cross-built ports into a repository of their own
 and packaged nano, curl and git. OpenSSH was in the base system only as
 `sftp-server`, the `sftp` subsystem dropbear runs. The base is the first
-PR's head.
+PR's head; the branch was rebased onto main at `09dc35a1`
+(#535's merge) before it opened.
 
 ## What changed
 
@@ -64,7 +65,7 @@ PR's head.
 
 ## Validation
 
-`make SELFTEST=0 test-ports` on this machine, on `8eaa62d5`, with nano,
+`make SELFTEST=0 test-ports` on this machine, on `8eaa62d5` (before the rebase), with nano,
 curl and git as in the first PR:
 
 | | x86-64 | AArch64 |
@@ -75,7 +76,22 @@ curl and git as in the first PR:
 | z. missing calls | the probe's only, from the ports | the same |
 | verdict | PASS | PASS |
 
-`make matrix`: PENDING.
+`make matrix` on `ddab15b4` (this PR's code and report before the
+rebase, stacked on #535 without its review fix), on the other machine,
+in the CI image with the pinned ceesafec 0.57.1 and a fresh `out/`, one
+architecture after the other. The rebase brought only #535's change to
+`tools/pkgbuild.py` and its host test, which no boot runs.
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.4 / 238.9 / 248.3 s | 277.0 / 284.6 / 307.0 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 240.2 / 241.7 / 247.3 s | 285.0 / 306.4 / 302.4 s |
+| release `test` | 19.0 s | 23.5 s |
+
+Branch CI: PENDING.
 
 ## Limits
 
