@@ -12,6 +12,7 @@
  * tools/mkseed.py writes.
  */
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +44,8 @@ static unsigned g_fails;
 static int32_t file_read(void *ctx, uint64_t lba, uint32_t count, void *buf)
 {
     (void)ctx;
-    if (fseeko(g_img, (off_t)(lba * SEED_SECTOR), SEEK_SET) != 0)
+    /* fseek, not fseeko: glibc hides fseeko under strict C, and a seed is small. */
+    if (lba > (uint64_t)LONG_MAX / SEED_SECTOR || fseek(g_img, (long)(lba * SEED_SECTOR), SEEK_SET) != 0)
         return -1;
     return fread(buf, SEED_SECTOR, count, g_img) == count ? 0 : -1;
 }
@@ -53,8 +55,10 @@ static int open_seed(const char *path)
     g_img = fopen(path, "rb");
     if (g_img == NULL)
         return -2;
-    fseeko(g_img, 0, SEEK_END);
-    return seed_probe(file_read, NULL, (uint64_t)ftello(g_img) / SEED_SECTOR);
+    long size = fseek(g_img, 0, SEEK_END) == 0 ? ftell(g_img) : -1;
+    if (size < 0)
+        return -2;
+    return seed_probe(file_read, NULL, (uint64_t)size / SEED_SECTOR);
 }
 
 static void dump(int at, char *path, size_t plen)
