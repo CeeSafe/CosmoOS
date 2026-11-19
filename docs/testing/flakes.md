@@ -5234,6 +5234,26 @@ requests and 29 pushes, the queue idle at 29, CPU 0 running at
 read an archive of 20779008 bytes, in two different tests' boots; the
 sixth sighting's was 20107776 bytes.
 
+## `test-mirror`'s `esp-repaired`: no line of the loader's on the console, 2026-11-19
+
+One sighting: CI run 44450372856 (PR #532 at `28123075`, a documentation
+commit), `encrypted root test (x86_64, mirror be)`, `test-mirror: FAIL:
+esp-repaired: the loader's archive line: no line matching '^archive:
+(\d+) bytes read$'`. The boot from disk f's ESP alone, the ESP `cosmo-upgrade
+--repair` had just rewritten, went on to the prompt. Its serial log has the firmware's
+`BdsDxe: starting Boot0006 ...` at 2.29 s and the kernel's banner at 2.81
+s, which says `Boot: UEFI (cosmoboot-uefi v1, protocol v10)` and the
+verified-boot key. Nothing between them: no `cosmoboot-uefi v1`, no
+`verified boot:` lines, no `archive:`. So the loader ran: the 0.52 s is more than `esp-lagging`'s 0.27 s from
+`starting` to the loader's last line. But nothing it wrote to the console
+reached the serial port. The job's six other ESP boots (`esp-install`
+to `esp-absent`) each have the loader's lines. The previous run's same
+job, on `c954c788` (the same code; only the report differs), passed.
+Nothing the PR changes runs before the kernel. Not attributed. What to
+look at next: whether the loader's console output goes through the
+firmware's `ConOut` alone, and what decides whether that includes the
+serial terminal on a boot from a just-rewritten ESP.
+
 ## `test-be`'s `be-space` boot on an encrypted root out of time, 2026-10-24
 
 CI, PR #448 at `00ca2724`, run 40057006013, job 120762119306 (`encrypted
