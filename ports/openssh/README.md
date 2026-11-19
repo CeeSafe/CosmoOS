@@ -80,7 +80,8 @@ two ends on the same system, over loopback, stalls (backlog NET-25).
 `ssh-keygen`. It holds:
 - `/usr/sbin/sshd`, `/usr/libexec/sshd-session` and `sshd-auth`;
 - `/etc/ssh/sshd_config` (this directory's `sshd_config`): keys only,
-  root by key, no login records, and the `sftp` subsystem the base
+  root by key, no forwarding of any kind (as dropbear), no login records,
+  and the `sftp` subsystem the base
   system's `/usr/libexec/sftp-server`;
 - `/etc/svc/sshd` (`sshd.svc`) and its start script `/etc/ssh/start`
   (`start`).

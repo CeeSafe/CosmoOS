@@ -28,7 +28,8 @@ scripts/publish-repo.py does) over HTTPS from 127.0.0.1 (the guest's
      the file holds the line, and the session drew nano's title bar.
   s. `pkg install openssh-server` (openssh-client with it, its dependency);
      `svc start sshd`: port 22 now answers with OpenSSH's banner, not
-     dropbear's. A key login from the host; `scp` both ways, byte for byte
+     dropbear's. A key login from the host; a forward through it refused
+     (`ssh -W`), as dropbear refuses one; `scp` both ways, byte for byte
      (the sftp subsystem: the base system's sftp-server); then, on the
      target, its own ssh-keygen and ssh against its own sshd.
   z. No program a port installs met a system call the Linux personality
@@ -307,7 +308,23 @@ def stage_openssh(work, b, results, port):
     rc, out = ssh_run(work, port, True, "uname -s; id -u; echo sshd-ok")
     if rc != 0 or not re.search(r"^sshd-ok$", out, re.M) or not re.search(r"^0$", out, re.M):
         raise Fail(f"ssh to sshd: status {rc}, output {out!r}")
-    up = os.path.join(work, "scp-up.bin")
+    # No forwarding, as dropbear (ports/dropbear/localoptions.h): a stdio
+    # forward to the target's own port 22 is refused, where an allowed one
+    # would bring back sshd's banner. LogLevel INFO, so the refusal is seen.
+    fwd = [("LogLevel=INFO" if a == "LogLevel=ERROR" else a) for a in ssh_base(work, port, True)]
+    # An allowed forward stays open (sshd waits for the client's version), so
+    # a timeout is a failure too, with what came through it.
+    try:
+        p = subprocess.run(fwd[:-1] + ["-W", "127.0.0.1:22", fwd[-1]], stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=60)
+        rc, said = p.returncode, p.stdout + p.stderr
+    except subprocess.TimeoutExpired as e:
+        rc, said = "none: still open after 60 s", (e.stdout or b"") + (e.stderr or b"")
+    said = said.decode(errors="replace")
+    if rc == 0 or "SSH-2.0-" in said or "administratively prohibited" not in said:
+        raise Fail(f"ssh -W 127.0.0.1:22 through sshd: status {rc}, output {said.strip()[-400:]!r}; "
+                   f"expected the forward refused (administratively prohibited)")
+    up =os.path.join(work, "scp-up.bin")
     with open(up, "wb") as f:
         f.write(os.urandom(200000))
     rc, out = xfer(xfer_base("scp", work, port) + [up, "root@127.0.0.1:/root/scp-up.bin"])
@@ -331,7 +348,7 @@ def stage_openssh(work, b, results, port):
     need(out, r"^loop=0$", "the target's ssh-keygen and ssh against its own sshd")
     need(out, r"^from-the-target$", "the target's ssh ran a command")
     results.append(f"s. pkg install openssh-server (openssh-client with it); svc start sshd: port 22 went from "
-                   f"{before!r} to {now!r}; a key login ({waited:.1f} s), root; scp of 200000 bytes there and back "
+                   f"{before!r} to {now!r}; a key login ({waited:.1f} s), root; ssh -W refused; scp of 200000 bytes there and back "
                    f"byte for byte; the target's own ssh-keygen and ssh against its sshd")
 
 

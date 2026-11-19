@@ -25,7 +25,7 @@ PR's head; the branch was rebased onto main at `09dc35a1`
   `ssh-keyscan`, `ssh-agent`, `ssh-add`.
 - **`openssh-server`** depends on `openssh-client = 10.6`. It holds:
   - `/usr/sbin/sshd`, `/usr/libexec/sshd-session`, `sshd-auth`;
-  - `/etc/ssh/sshd_config`: keys only, root by key, no login records,
+  - `/etc/ssh/sshd_config`: keys only, root by key, no forwarding, no login records,
     and the base system's `sftp-server` as the `sftp` subsystem;
   - `/etc/svc/sshd`, which is `after dropbear`, and its start script
     `/etc/ssh/start`.
@@ -90,6 +90,21 @@ architecture after the other. The rebase brought only #535's change to
 | debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.4 / 238.9 / 248.3 s | 277.0 / 284.6 / 307.0 s |
 | `test-smp2`, `test-chaos`, `test-harness-retry` | 240.2 / 241.7 / 247.3 s | 285.0 / 306.4 / 302.4 s |
 | release `test` | 19.0 s | 23.5 s |
+
+The review's one finding (Codex, P2): `sshd_config` left TCP, agent and
+stream-local forwarding at OpenSSH's defaults, which allow them, where
+dropbear here is built with none (`ports/dropbear/localoptions.h`). It
+now sets `DisableForwarding yes` and `PermitTunnel no`. Step s runs
+`ssh -W 127.0.0.1:22` from the host through sshd and expects it refused.
+`make SELFTEST=0 test-ports` on the other machine, in the CI image:
+
+| | x86-64 | AArch64 |
+|---|---|---|
+| the old `sshd_config` | FAIL: the forward stayed open and brought back `SSH-2.0-OpenSSH_10.6` | the same |
+| the fix | PASS, `ssh -W refused` | the same |
+
+The change is to a packaged file and to `ports_test.py`, which no matrix
+step runs, so the matrix above stands.
 
 Branch CI: PENDING.
 
