@@ -83,6 +83,28 @@ endif
 ports: $(PKG_INDEX)
 pkg: $(PKG_ELF)
 
+# The cross-built ports (roadmap 1.3 R3; docs/pkg/design.md, "Cross-built
+# ports"): each port's .mk adds its package file and staged install to
+# SERVER_PACKAGES (FILE=STAGE) and what makes them to SERVER_PACKAGE_DEPS.
+# They are a repository of their own, signed with the same key, and not in
+# the boot archive: the release set carries it (cosmoos-ARCH-ports.tar) and
+# scripts/publish-repo.py adds its packages to the network repository.
+SERVER_REPO  := $(OUT)/pkg/server
+SERVER_INDEX := $(SERVER_REPO)/INDEX
+
+$(SERVER_INDEX): $(SERVER_PACKAGE_DEPS) $(ROOT)/tools/pkgbuild.py $(ROOT)/scripts/modsign.py $(PKGSIGN_KEY)
+	$(call log,PKG,server ports)
+	$(Q)rm -rf $(SERVER_REPO)
+	$(Q)mkdir -p $(SERVER_REPO)
+	$(Q)for spec in $(SERVER_PACKAGES); do \
+		$(PKGBUILD) pack --package $${spec%%=*} --root $${spec#*=} --sign-key $(PKGSIGN_KEY) \
+			--out $(SERVER_REPO) || exit 1; \
+	done
+	$(Q)$(PKGBUILD) index --repo $(SERVER_REPO) --sign-key $(PKGSIGN_KEY)
+
+.PHONY: server-ports
+server-ports: $(SERVER_INDEX)
+
 # Archive entries: every repository file as repo/<name>; the recipe list
 # is known only after the build, so the archive rule shells out for it.
 PKG_ARCHIVE_ENTRIES = $(foreach f,$(sort $(wildcard $(PKG_REPO)/*)),repo/$(notdir $(f))=$(f))

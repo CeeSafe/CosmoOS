@@ -139,6 +139,34 @@ and 30 days with one serial as `scripts/publish-repo.py` makes them;
 | e | `cosmo-upgrade --check` against a served `LATEST` (v9.9.9, then the running release), with every privilege dropped too; `--check --fetch` of this build's release set; a set whose `SHA256SUMS` changed | newer, then up to date; the set fetched (`SHA256SUMS`, `.sig`, then the four files) and already current; `bad signature`, nothing more fetched |
 | g | the installer's `repos.conf` and the default release index, against `https://vkuttyp.github.io/CosmoOS/` (three attempts: the runner's internet) | `pkg update` exit 0 `from 2 repositories` with the published header (`INDEX.90` once the site has it; until the first publication after v1.0.7, `INDEX` by the fallback); `cosmo-upgrade --check` names the published `LATEST` |
 
+## `test-ports`
+
+`tests/boot/ports_test.py`, roadmap 1.3 R3's acceptance (`docs/pkg/design.md`,
+"Cross-built ports"). `make SELFTEST=0 test-ports` runs it on a debug
+build without boot-time self-tests. It needs a debug kernel because the
+Linux personality's lines for the calls it lacks are DEBUG; a release
+kernel would make step z pass without looking. `SELFTEST=0` gives the
+build its own tree, `out/ARCH-debug-noselftest` (`build/config.mk`).
+
+The live image installs itself on a blank disk. The installed system then
+boots on QEMU user networking with its ssh port forwarded to the host.
+The harness serves the ports repository (`make server-ports`'s, made a
+network one by `pkgbuild.py publish` as `test-pkg-net` does) over HTTPS
+with the test CA (`tests/boot/tlstest.py`), and `repos.conf` names only
+it. Programs that need a terminal run in an ssh session under a host pty
+(`pty_keys`: raw keys, with Enter as CR, since nano reads LF as ^J,
+Justify), with `TERM=xterm-256color`.
+
+| Step | What | Required |
+|---|---|---|
+| a | `pkg update && pkg install nano` | exit 0; `pkg: fetching nano-9.3.cpk from ports`; `pkg: installing nano-9.3 (N files)`; the server saw the package fetched |
+| b | `nano /root/ports-note.txt` in the session: a line typed, ^O and Enter, ^X; then `cat` of the file | nano's title bar (`GNU nano 9.3`), `Wrote 2 lines`; the file holds the line (read again over a second ssh command) |
+| z | a probe the target's `tcc` compiles calls `inotify_init1`, which the personality lacks; then the kernel's `unimplemented system call` lines | the probe's line (`pid N (unimpl)`) is there, so the check can see one; no line names a program the ports install (`PORT_PROGRAMS`); the base system's lines are listed in the result, not judged |
+
+The first run (2026-11-19, x86-64) listed two calls of the base system's:
+`cat 40` (`sendfile`) and `dropbear 322` (`execveat`), backlog LX-26 and
+LX-27.
+
 ## The interactive harness
 
 `tests/boot/shelltest.py` types `pkg install hello && hello && pkg list`

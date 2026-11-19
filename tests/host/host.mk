@@ -825,6 +825,8 @@ host-test: $(HOST_TESTS)
 	$(Q)$(PYTHON) $(ROOT)/tests/host/test_publish_repo.py
 	@echo "== $(ROOT)/tests/host/test_pkgbuild_libs.py"
 	$(Q)CC="$(CC)" $(PYTHON) $(ROOT)/tests/host/test_pkgbuild_libs.py
+	@echo "== $(ROOT)/tests/host/test_pkgbuild_pack.py"
+	$(Q)$(PYTHON) $(ROOT)/tests/host/test_pkgbuild_pack.py
 	@echo "== $(ROOT)/tests/boot/test_firmware_stall.py"
 	$(Q)$(PYTHON) $(ROOT)/tests/boot/test_firmware_stall.py
 	@echo "== $(ROOT)/tests/boot/test_boot_deadline.py"

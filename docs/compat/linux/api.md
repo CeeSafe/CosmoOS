@@ -161,7 +161,7 @@ nothing (`lx_zero`), and the rest are translated (counted 2026-10-28,
 after roadmap 1.2 A5's second PR); everything else
 returns `-ENOSYS` through `lx_unknown`, which increments
 `linux_state.unknown_syscalls` and logs the first eight per process at
-DEBUG (`linux: pid N: unimplemented system call NR`).
+DEBUG (`linux: pid N (NAME): unimplemented system call NR`).
 
 ### Files and directories
 

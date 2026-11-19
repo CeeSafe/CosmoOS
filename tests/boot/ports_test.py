@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""Roadmap 1.3 R3's acceptance test: the cross-built ports, installed with
+`pkg install` on an installed system and run (docs/pkg/testing.md,
+"test-ports"; docs/pkg/design.md, "Cross-built ports").
+
+    ports_test.py --image cosmoos.img --repo SERVER_REPO --sign-key KEY --arch ARCH --workdir DIR
+
+The live image installs itself on a blank disk (install_test.stage_install).
+The installed system then boots on QEMU user networking with its ssh port
+forwarded, and this harness serves the ports repository (--repo, `make
+server-ports`'s, made a network one by `pkgbuild.py publish` as
+scripts/publish-repo.py does) over HTTPS from 127.0.0.1 (the guest's
+10.0.2.2) with test certificates made for the run (tests/boot/tlstest.py).
+
+  a. `pkg update && pkg install nano` from that repository, the package
+     fetched from the server.
+  b. nano under a terminal: an ssh session (`ssh -tt` under a host pty,
+     pty_keys, TERM=xterm-256color) runs `nano FILE`, types a line,
+     writes it out (^O, Enter) and leaves (^X);
+     the file holds the line, and the session drew nano's title bar.
+  z. No program a port installs met a system call the Linux personality
+     lacks: the kernel's log (a debug kernel's: the lines are DEBUG) has
+     no `unimplemented system call` line naming one. A probe compiled on
+     the target by tcc makes such a call first, and its line must be
+     there, so the check is seen to work.
+
+Exit 0 PASS, 1 FAIL.
+"""
+import argparse
+import fcntl
+import os
+import pty
+import re
+import select
+import shutil
+import struct
+import subprocess
+import sys
+import termios
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import install_test  # noqa: E402  (Boot, Fail, need, stage_install)
+import tlstest  # noqa: E402
+from install_test import Boot, Fail, need  # noqa: E402
+from net_login_test import WIN_COLS, WIN_ROWS, free_port, ssh_base, ssh_run, ssh_wait  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PKGBUILD = os.path.join(ROOT, "tools", "pkgbuild.py")
+DAY = 86400
+# The programs the ports install: a call the Linux personality lacks, made by
+# one of them, fails the test (z). The base system's are reported, not judged.
+PORT_PROGRAMS = {"nano"}
+
+
+def utc(t):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def publish(www, built, key, serial):
+    """The built repository made a network one, as scripts/publish-repo.py
+    makes it: INDEX.90 and INDEX, one serial, and every package."""
+    d = os.path.join(www, "ports")
+    os.makedirs(d, exist_ok=True)
+    for f in sorted(os.listdir(built)):
+        if f.endswith(".cpk"):
+            shutil.copy(os.path.join(built, f), os.path.join(d, f))
+    for out, days in (("INDEX.90", 90), ("INDEX", 30)):
+        r = subprocess.run([sys.executable, PKGBUILD, "publish", "--index", os.path.join(built, "INDEX"),
+                            "--sign-key", key, "--serial", str(serial), "--days", str(days),
+                            "--published", utc(time.time() - DAY), "--out", os.path.join(d, out)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise Fail(f"pkgbuild.py publish: {r.stderr.strip()[-400:]}")
+
+
+def login_key(work, b):
+    """A key for root's logins, typed into authorized_keys on the console."""
+    key = os.path.join(work, "id_ed25519")
+    for f in (key, key + ".pub", os.path.join(work, "known_hosts")):
+        if os.path.exists(f):
+            os.unlink(f)
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ports-test", "-f", key], check=True)
+    pub = open(key + ".pub").read().strip()
+    out = b.status(f"mkdir -p /root/.ssh && echo '{pub}' > /root/.ssh/authorized_keys", "key")
+    need(out, r"^key=0$", "root's authorized_keys")
+
+
+def pty_keys(work, port, steps, marker, timeout=120):
+    """ssh -tt under a host pty, as net_login_test.ssh_pty_session, but
+    typing raw keys: each step is (bytes, what to wait for after it, or
+    None). A terminal's Enter is CR, which a full-screen program reads as
+    Enter; the LF ssh_pty_session ends each line with is ^J, which nano
+    reads as Justify. The session's whole output once `marker` was seen."""
+    master, slave = pty.openpty()
+    p = None
+    try:
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", WIN_ROWS, WIN_COLS, 0, 0))
+        p = subprocess.Popen(ssh_base(work, port, True)[:-1] + ["-tt", "root@127.0.0.1"], stdin=slave,
+                             stdout=slave, stderr=slave, close_fds=True, start_new_session=True)
+    finally:
+        os.close(slave)
+    out = b""
+    t_end = time.monotonic() + timeout
+
+    def pump(until, secs):
+        nonlocal out
+        end = min(t_end, time.monotonic() + secs)
+        while time.monotonic() < end and (until is None or until not in out):
+            r, _, _ = select.select([master], [], [], 0.2)
+            if r:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                out += chunk
+        return until is None or until in out
+
+    try:
+        if not pump(b"# ", 30):
+            raise Fail("the ssh session's shell prompt never came")
+        for keys, wait in steps:
+            os.write(master, keys)
+            if wait is not None and not pump(wait, 30):
+                raise Fail(f"after typing {keys!r}: no {wait!r} on the terminal within 30 s")
+            pump(None, 0.5)
+        pump(("\n" + marker).encode(), max(1.0, t_end - time.monotonic()))
+        os.write(master, b"exit\r")
+        try:
+            p.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        pump(None, 0.5)
+    finally:
+        if p is not None and p.poll() is None:
+            p.kill()
+            p.wait()
+        os.close(master)
+    return out.decode("utf-8", "replace").replace("\r", "")
+
+
+def stage_nano(work, results, port):
+    """b: nano under the harness's terminal, over ssh."""
+    note = "/root/ports-note.txt"
+    line = "written by nano under a pty"
+    out = pty_keys(work, port, [
+        (f"nano {note}\r".encode(), b"GNU nano"),
+        (line.encode() + b"\r", None),
+        (b"\x0f", b"Write to File"),      # ^O
+        (b"\r", b"Wrote 2 lines"),        # Enter: the name nano offers
+        (b"\x18", None),                  # ^X, nothing unsaved
+        (f"cat {note}; echo nano-done=$?\r".encode(), None),
+    ], "nano-done=")
+    with open(os.path.join(work, "nano-session.txt"), "w") as f:   # the terminal's bytes, for a failure
+        f.write(out)
+    need(out, r"GNU nano 9\.3", "nano's title bar on the terminal")
+    need(out, rf"^{re.escape(line)}$", "the file nano wrote, read back")
+    need(out, r"^nano-done=0$", "cat of the file nano wrote")
+    rc, back = ssh_run(work, port, True, f"cat {note}")
+    if rc != 0 or back.strip() != line:
+        raise Fail(f"{note}: status {rc}, contents {back!r}; expected {line!r}")
+    results.append(f"b. nano under ssh -tt (xterm-256color): drew its title bar, wrote {note} with ^O, left with ^X; "
+                   f"the file holds {line!r}")
+
+
+def stage_ports(args, results, inst):
+    work = args.workdir
+    tls, www = os.path.join(work, "tls"), os.path.join(work, "www")
+    tlstest.make_test_certs(tls, ip="10.0.2.2")
+    os.makedirs(www, exist_ok=True)
+    shutil.copy(os.path.join(tls, "ca.pem"), os.path.join(www, "testca.pem"))
+    publish(www, args.repo, args.sign_key, 1)
+    server = tlstest.Server(www, tls, "server")
+    plain = tlstest.Server(www)
+    port = free_port()
+    env = {"QEMU_DISKS": "boot", "QEMU_NET_HOSTFWD": f"tcp:127.0.0.1:{port}-:22"}
+    b = Boot("ports", inst["target"], work, env, args.timeout)
+    try:
+        b.wait_prompt("the first prompt")
+        need(b.text(), r"^init: switched to the disk root \S+ ", "the installed boot")
+        out = b.status(f"wget -q -O /tmp/testca.pem http://10.0.2.2:{plain.port}/testca.pem && "
+                       "cat /tmp/testca.pem >> /etc/ssl/certs/ca-certificates.crt && "
+                       f"echo 'ports https://10.0.2.2:{server.port}/ports' > /etc/pkg/repos.conf", "ca")
+        need(out, r"^ca=0$", "the test CA in the bundle and the ports repository in repos.conf")
+
+        # a. Install.
+        out = b.status("pkg update && pkg install nano", "inst")
+        need(out, r"^inst=0$", "pkg update && pkg install nano")
+        need(out, r"^pkg: fetching nano-9\.3\.cpk from ports$", "nano fetched")
+        files = need(out, r"^pkg: installing nano-9\.3 \((\d+) files?\)$", "nano installed").group(1)
+        if "/ports/nano-9.3.cpk" not in server.paths():
+            raise Fail(f"the server saw {server.paths()}; nano-9.3.cpk was not fetched from it")
+        results.append(f"a. pkg update && pkg install nano: nano-9.3.cpk fetched over HTTPS, {files} files installed")
+
+        login_key(work, b)
+        waited = ssh_wait(work, port, strict=False)
+        results.append(f"ssh: key login as root in {waited:.1f} s")
+        stage_nano(work, results, port)
+
+        # z. What the Linux personality lacked. First a call it lacks on
+        # purpose (inotify_init1, from a program the system's own tcc
+        # compiles), so the check is seen to find a line when there is one.
+        out = b.status("printf '#include <stdio.h>\\n#include <unistd.h>\\n#include <sys/syscall.h>\\n"
+                       "int main(void){printf(\"probe-pid=%%d\\\\n\",(int)getpid());fflush(stdout);"
+                       "return syscall(SYS_inotify_init1,0)==-1?0:1;}\\n' > /tmp/unimpl.c && "
+                       "tcc -o /tmp/unimpl /tmp/unimpl.c && /tmp/unimpl", "probe")
+        need(out, r"^probe=0$", "the probe's inotify_init1 refused (tcc on the target)")
+        probe = need(out, r"^probe-pid=(\d+)$", "the probe's pid").group(1)
+        out = b.run("dmesg | grep 'unimplemented system call' ; echo dmesg-done")
+        lines = re.findall(r"linux: pid (\d+) \(([^)]*)\): unimplemented system call (\d+)$", out, re.M)
+        if not any(pid == probe and name == "unimpl" for pid, name, _ in lines):
+            raise Fail(f"the probe (pid {probe}, unimpl) made a call the personality lacks and the kernel's log has "
+                       f"no line for it: the check below would see nothing (a release kernel does not log DEBUG; "
+                       f"test-ports runs on a debug build)")
+        ported = sorted({f"{name}: system call {nr}" for _, name, nr in lines if name in PORT_PROGRAMS})
+        if ported:
+            raise Fail("system calls the Linux personality lacks, made by the ports:\n" + "\n".join(ported))
+        base = sorted({f"{name} {nr}" for pid, name, nr in lines if pid != probe and name not in PORT_PROGRAMS})
+        results.append(f"z. the kernel's log names the probe's unimplemented call (pid {probe}) and none made by "
+                       f"{', '.join(sorted(PORT_PROGRAMS))}" +
+                       (f"; the base system's, not this test's: {', '.join(base)}" if base else ""))
+        rc = b.finish()
+        if rc != install_test.EXIT_SUCCESS:
+            raise Fail(f"ports boot: QEMU exit code {rc}")
+    except Exception:
+        b.kill()
+        raise
+    finally:
+        server.shutdown()
+        plain.shutdown()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--image", required=True)
+    ap.add_argument("--repo", required=True, help="the ports repository (make server-ports's SERVER_REPO)")
+    ap.add_argument("--sign-key", required=True, help="the key the build signed it with (PKGSIGN_KEY)")
+    ap.add_argument("--arch", required=True)
+    ap.add_argument("--workdir", required=True)
+    ap.add_argument("--timeout", type=float, default=240.0, help="per boot")
+    args = ap.parse_args()
+    os.environ["TERM"] = "xterm-256color"   # what the ssh client asks the server's pty to be
+    shutil.rmtree(args.workdir, ignore_errors=True)
+    os.makedirs(args.workdir)
+    results = []
+    try:
+        inst = install_test.stage_install(args, results)
+        stage_ports(args, results, inst)
+    except (Fail, tlstest.CertError) as e:
+        for r in results:
+            print(f"test-ports: {r}")
+        print(f"test-ports: FAIL: {e} (logs in {args.workdir})")
+        return 1
+    for r in results:
+        print(f"test-ports: {r}")
+    print("test-ports: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

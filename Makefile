@@ -74,6 +74,9 @@ include $(ROOT)/ports/dropbear/dropbear.mk
 include $(ROOT)/ports/openssh/openssh.mk
 include $(ROOT)/ports/mbedtls/mbedtls.mk
 include $(ROOT)/ports/tcc/tcc.mk
+include $(ROOT)/ports/zlib/zlib.mk
+include $(ROOT)/ports/ncurses/ncurses.mk
+include $(ROOT)/ports/nano/nano.mk
 include $(ROOT)/tools/clang-eval/clang.mk
 include $(ROOT)/userland/userland.mk
 include $(ROOT)/pkg/pkg.mk
@@ -646,6 +649,19 @@ test-pkg-net: $(IMAGE) $(PKG_INDEX) release-set
 	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
 		$(PYTHON) $(ROOT)/tests/boot/pkgnet_test.py --image $(IMAGE) --repo $(PKG_REPO) --sign-key $(PKGSIGN_KEY) \
 		--set $(PKGNET_SET_DIR) --arch $(ARCH) --workdir $(OUT)/test-pkg-net --timeout $(BOOT_TIMEOUT)
+
+# Roadmap 1.3 R3's acceptance test (tests/boot/ports_test.py,
+# docs/pkg/testing.md, "test-ports"): the cross-built ports (make
+# server-ports) installed with pkg install on an installed system, served
+# over HTTPS from the host, and run. Run it as `make SELFTEST=0
+# test-ports`: a debug kernel, whose log has the Linux personality's DEBUG
+# lines for the calls it lacks (the test reads them), without the boot's
+# self-tests.
+.PHONY: test-ports
+test-ports: $(IMAGE) $(SERVER_INDEX)
+	$(Q)QEMU_ARCH=$(ARCH) QEMU_MEM=$(QEMU_MEM) QEMU_SMP=$(QEMU_SMP) QEMU_ACCEL=$(QEMU_ACCEL) \
+		$(PYTHON) $(ROOT)/tests/boot/ports_test.py --image $(IMAGE) --repo $(SERVER_REPO) --sign-key $(PKGSIGN_KEY) \
+		--arch $(ARCH) --workdir $(OUT)/test-ports --timeout $(BOOT_TIMEOUT)
 
 # The virtio-gpu unit's acceptance test (tests/boot/display_test.py,
 # docs/drivers/virtio/testing.md, "virtio-gpu"): the console on a
