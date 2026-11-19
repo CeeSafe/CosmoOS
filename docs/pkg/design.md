@@ -254,7 +254,10 @@ file: usr/share/man/man1/curl.1 0644
 
 `pkgbuild.py pack --package FILE --root STAGE` makes the `.cpk` from it.
 This is the same archive `build` writes, with the same manifest,
-signature and byte-for-byte reproducibility. The file is named `package`
+signature and byte-for-byte reproducibility. Nothing is read through a
+symbolic link, whether in a path's last component or in any directory
+on the way, so a link in a stage cannot put a file from outside it into
+a signed package. The file is named `package`
 rather than `port` so that `make ports`, which globs `ports/*/port`,
 does not pick it up. `pack`'s command-line form, which `busybox-dyn` and
 `cosmo-upgrade` use, stays as it is.

@@ -51,6 +51,12 @@ def main():
         write(os.path.join(stage, "usr/share/tool/a.txt"), b"a\n")
         write(os.path.join(stage, "usr/share/tool/sub/c.txt"), b"c\n")
         os.symlink("a.txt", os.path.join(stage, "usr/share/tool/link.txt"))
+        # Links to a directory outside the stage, holding a file no package may carry: one as a
+        # parent directory of a path named, one inside a DIR/ tree (#535's review).
+        outside = os.path.join(work, "outside")
+        write(os.path.join(outside, "secret"), b"not the stage's\n")
+        os.symlink(outside, os.path.join(stage, "usr/lnk"))
+        os.symlink(outside, os.path.join(stage, "usr/share/tool/sub/lnkdir"))
         write(os.path.join(stage, "etc/tool.conf"), b"x = 1\n")
         repo = os.path.join(work, "repo")
         os.makedirs(repo)
@@ -69,6 +75,8 @@ def main():
         for p in (b"usr/share/tool/a.txt", b"usr/share/tool/b.txt", b"usr/share/tool/sub/c.txt"):
             check(b"file: " + p + b" 0644 " in blob, f"the DIR/ line took {p.decode()}")
         check(b"link.txt" not in blob, "a symbolic link under DIR/ left out")
+        check(b"secret" not in blob and b"not the stage's" not in blob,
+              "a linked directory under DIR/ pointing outside the stage left out")
         first = blob
         r = pack(work, good, key, os.path.join(work, "again.cpk"))
         check(r.returncode == 0 and open(os.path.join(work, "again.cpk"), "rb").read() == first,
@@ -80,6 +88,9 @@ def main():
             ("a mode that is not octal", good.replace("0755", "0789"), "file needs 'path mode'"),
             ("a path not in the stage", good + "file: usr/bin/none 0755\n", "is not a regular file"),
             ("a symbolic link named", good + "file: usr/share/tool/link.txt 0644\n", "is not a regular file"),
+            ("a file through a linked parent directory", good + "file: usr/lnk/secret 0644\n",
+             "is not a regular file"),
+            ("a DIR/ through a linked directory", good + "file: usr/lnk/ 0644\n", "is not a directory"),
             ("a path that leaves /", good + "file: ../outside 0644\n", "bad destination"),
             ("a forbidden destination", good + "file: dev/null 0644\n", "destination not allowed"),
             ("a file listed twice", good + "file: usr/share/tool/a.txt 0644\n", "a file is listed twice"),

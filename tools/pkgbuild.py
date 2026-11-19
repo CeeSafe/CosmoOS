@@ -350,29 +350,42 @@ def parse_package(path):
 
 
 def staged_files(rec, root, path):
-    """The (destination, mode, data) of each `file:` line, read from root."""
+    """The (destination, mode, data) of each `file:` line, read from root.
+    Nothing is read through a symbolic link, in the last component or in
+    any directory on the way: a path whose resolved form is not the stage's
+    own path to it is refused, so a link in the stage cannot put a file
+    from outside it into a signed package."""
+    real_root = os.path.realpath(root)
+
+    def in_stage(rel):
+        """The path of rel under root if no component of it is a link; else None."""
+        want = os.path.normpath(os.path.join(real_root, rel))
+        return want if os.path.realpath(want) == want and want.startswith(real_root + os.sep) else None
+
     files = []
     for rel, mode in rec["file"]:
         dest_path("/", rel.rstrip("/"))    # the same refusals as the destination itself
-        src = os.path.join(root, rel)
         if rel.endswith("/"):
-            if not os.path.isdir(src):
-                die(f"{path}: {rel} is not a directory in {root}")
+            src = in_stage(rel.rstrip("/"))
+            if src is None or not os.path.isdir(src):
+                die(f"{path}: {rel} is not a directory in {root} (or reaches it through a symbolic link)")
             found = []
-            for dirpath, dirnames, filenames in os.walk(src):
+            for dirpath, dirnames, filenames in os.walk(src):   # os.walk does not descend into linked directories
                 dirnames.sort()
                 for fn in sorted(filenames):
-                    full = os.path.join(dirpath, fn)
-                    if os.path.isfile(full) and not os.path.islink(full):
-                        found.append(os.path.relpath(full, root))
+                    r = os.path.relpath(os.path.join(dirpath, fn), real_root)
+                    full = in_stage(r)
+                    if full is not None and os.path.isfile(full):
+                        found.append((r, full))
             if not found:
                 die(f"{path}: {rel} holds no file")
-            for r in found:
-                with open(os.path.join(root, r), "rb") as f:
+            for r, full in found:
+                with open(full, "rb") as f:
                     files.append((r, mode, f.read()))
         else:
-            if os.path.islink(src) or not os.path.isfile(src):
-                die(f"{path}: {rel} is not a regular file in {root}")
+            src = in_stage(rel)
+            if src is None or not os.path.isfile(src):
+                die(f"{path}: {rel} is not a regular file in {root} (or reaches it through a symbolic link)")
             with open(src, "rb") as f:
                 files.append((rel, mode, f.read()))
     return files
