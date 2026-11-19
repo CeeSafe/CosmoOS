@@ -10,8 +10,8 @@ from the kernel.
 A seed's `network-config` may give an interface a static address. Before
 this PR the kernel set an address only from DHCP or from fw_cfg at boot
 (`opt/cosmo/ipv4`, a test seam); user space could not set one. The base
-is the first PR's head (`528b53ad`, #531), which main will equal when that
-PR merges.
+is the first PR's head (`528b53ad`, #531), merged into main as
+`f408cdb9`.
 
 ## What changed
 
@@ -51,7 +51,19 @@ the base.
 
 ## Validation
 
-PENDING: the matrix on `a986037d`, both architectures.
+`make matrix` on `a986037d`, both architectures on the other machine, in
+the CI image with the pinned ceesafec 0.57.1 and a fresh `out/`:
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 230.0 / 239.0 / 244.9 s | 277.3 / 286.5 / 299.4 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 238.1 / 239.1 / 244.0 s | 290.7 / 303.8 / 303.7 s |
+| release `test` | 19.0 s | 23.0 s |
+
+Branch CI: see the pull request.
 
 ## Limits
 
