@@ -193,6 +193,15 @@ extern "C" {
     }
 
     // The netctl.h records.
+    struct cosmo_netctl_ipv4 {
+        version: u16;
+        op: u16;
+        ifname: [u8; 16];
+        addr: u32;
+        gateway: u32;
+        prefix: u8;
+        reserved: [u8; 3];
+    }
     struct cosmo_netctl {
         version: u16;
         op: u16;
@@ -380,6 +389,9 @@ extern "C" {
     fn netif_register(nif: *mut netif) -> i32;
     fn netif_unregister(nif: *mut netif);
     fn netif_set_ipv4(nif: *mut netif, addr: u32, mask: u32, gateway: u32);
+    fn netif_find(name: *CChar) -> *mut netif;
+    fn dhcp_client_stop(nif: *mut netif);
+    fn arp_flush(nif: *mut netif);
     fn netif_set_up(nif: *mut netif, up: bool);
     fn netif_set_forward(nif: *mut netif, on: bool);
     fn netif_set_masquerade(nif: *mut netif, on: bool);
@@ -464,6 +476,7 @@ const FORWARD_DEL: u16 = 2;
 const FILTER_ADD: u16 = 3;
 const FILTER_DEL: u16 = 4;
 const FILTER_POLICY: u16 = 5;
+const IPV4_SET: u16 = 6;
 const PROTO_TCP: u8 = 6;
 const PROTO_UDP: u8 = 17;
 const FLOW_NAT: u8 = 1;
@@ -1057,6 +1070,49 @@ unsafe fn ctlFilter(buf: *void, len: usize) -> i64 {
     return if (rc != 0) rc as i64 else truncate<i64>(len);
 }
 
+/// A static address (IPV4_SET): exactly one struct cosmo_netctl_ipv4. The machine's own interface only -- not loopback,
+/// not a guest's tap (NODEFAULT) -- and its DHCP client stops first, so no lease replaces what was set (roadmap 1.3
+/// R2: a seed's network-config). Sleeps (the client's stop waits for its work).
+/// Safety: `buf` points to `len` readable bytes.
+unsafe fn ctlIpv4(buf: *void, len: usize) -> i64 {
+    if (len != layoutOf<cosmo_netctl_ipv4>().size) {
+        return -EINVAL as i64;
+    }
+    var s = scratchFrom(buf, len);
+    let c = Ptr.toBorrow(
+        (recordAt(mut s, layoutOf<cosmo_netctl_ipv4>().size * (1)) as *mut cosmo_netctl_ipv4) as *cosmo_netctl_ipv4,
+    );
+    if (c.reserved[0] != 0 || c.reserved[1] != 0 || c.reserved[2] != 0 || c.addr == 0 || c.prefix == 0 ||
+        c.prefix > 32) {
+        return -EINVAL as i64;
+    }
+    var name = [0u8; 16];
+    var n: usize = 0;
+    while (n < 15 && c.ifname[n] != 0) {
+        name[n] = c.ifname[n];
+        n += 1;
+    }
+    if (n == 0 || c.ifname[n] != 0) {
+        return -EINVAL as i64; // empty, or not terminated within the field
+    }
+    let nif = netif_find(borrow name as *[u8; 16] as *CChar);
+    if (nif.isNull()) {
+        return -ENOENT as i64;
+    }
+    let flags = Ptr.toBorrow(nif as *netif).flags.loadWith(LoadOrdering.Acquire);
+    var rc: i64 = truncate<i64>(len);
+    if ((flags & (NETIF_LOOPBACK | NETIF_NODEFAULT)) != 0) {
+        rc = -EINVAL as i64;
+    } else {
+        dhcp_client_stop(nif);
+        let mask = swap32(0xffffffffu32 << (32 - (c.prefix as u32))); // prefix 1..32: a shift of 0..31
+        netif_set_ipv4(nif, c.addr, mask, c.gateway);
+        arp_flush(nif); // neighbours learned under the old address or router, as a lease's change flushes them
+    }
+    kobject_put(borrow mut Ptr.toBorrowMut(nif).obj as *mut kobject);
+    return rc;
+}
+
 /// /dev/net/tapctl's write: every command begins (version, op); each op is exactly its own struct, applied whole --
 /// a short, long or wrong-versioned write changes nothing.
 /// Safety: `buf` points to `len` readable bytes.
@@ -1079,6 +1135,9 @@ unsafe fn ctlWrite(vn: *mut vnode, off: u64, buf: *void, len: usize) -> i64 {
     }
     if (op == FILTER_ADD || op == FILTER_DEL || op == FILTER_POLICY) {
         return ctlFilter(buf, len);
+    }
+    if (op == IPV4_SET) {
+        return ctlIpv4(buf, len);
     }
     return -EINVAL as i64;
 }

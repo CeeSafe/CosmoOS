@@ -50,6 +50,7 @@
 #include <kernel/net/ip.h>
 #include <kernel/netif.h>
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -103,8 +104,21 @@ static void note(uint32_t which, uint64_t value)
 /* shim_net.c's assertions land in the harness. */
 void fuzz_fail(const char *file, int line, const char *expr) { harness_fail(file, line, expr); }
 
+/* test_stop_race's second stop: its first sleep (it waits for the first stop) jumps back to the test. */
+static jmp_buf g_race_jump;
+static bool g_racing;
+static unsigned g_race_waits;
+
 /* dhcp_boot_wait's sleep: the clock moves, and what falls due runs. */
-void thread_sleep_ns(uint64_t ns) { fz_clock_advance(ns); }
+void thread_sleep_ns(uint64_t ns)
+{
+    if (g_racing) {
+        g_racing = false;
+        g_race_waits++;
+        longjmp(g_race_jump, 1);
+    }
+    fz_clock_advance(ns);
+}
 
 static void on_klog(int level, const char *line)
 {
@@ -840,8 +854,42 @@ static void dhcp_bench(void)
     printf("  bench an exchange (NAK, OFFER, ACK) %.1f ns\n", t[4]);
 }
 
+/* A second dhcp_client_stop while the first waits in its barrier (tapctl's IPV4_SET as the NIC is removed): it waits
+ * for the first, and only the first drops the client's interface reference. The second runs from work the first's
+ * barrier runs; its wait's first sleep jumps back here, holding no lock. */
+static void race_stop(void *arg)
+{
+    if (setjmp(g_race_jump) == 0) {
+        g_racing = true;
+        dhcp_client_stop(arg);
+        g_racing = false;   /* returned without waiting: the check below fails */
+    }
+}
+
+static void test_stop_race(void)
+{
+    g_rng = SEED;
+    fz_net_init();
+    size_t baseline = fz_allocs_live();
+    setup(1);   /* dh0 and dh2 running */
+    struct netif *nif = &g_f[0].nif;
+    unsigned refs = __atomic_load_n(&nif->obj.refcount, __ATOMIC_RELAXED);
+    static struct net_work second;
+    net_work_init(&second, race_stop, nif);
+    EXPECT(net_work_queue(&second));
+    g_race_waits = 0;
+    dhcp_client_stop(nif);
+    g_running[0] = false;
+    EXPECT(g_race_waits == 1 && !g_racing);
+    EXPECT(__atomic_load_n(&nif->obj.refcount, __ATOMIC_RELAXED) == refs - 1);   /* one drop, the first stop's */
+    dhcp_client_stop(nif);   /* stopped: nothing, and no wait */
+    EXPECT(g_race_waits == 1 && __atomic_load_n(&nif->obj.refcount, __ATOMIC_RELAXED) == refs - 1);
+    teardown(baseline);
+}
+
 static const struct host_test tests[] = {
     { "dhcp digest", test_digest },
+    { "dhcp stop race", test_stop_race },
 };
 
 int main(void)

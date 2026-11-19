@@ -5,7 +5,7 @@
 //
 // Sockets are C objects (struct socket, socket.h) this file allocates; their kobject type, a constant C object of
 // this file's exported operations, and the type test socket_from_kobject stay in socket_floor.c, since CeeSafe
-// cannot build a static of a C type (as pipe_floor.c). Waits go through wait_floor.c's killable wait over a
+// cannot read a kobject's type, which lib/kernel holds opaque. Waits go through wait_floor.c's killable wait over a
 // condition function, since a wait entry is C state no CeeSafe local may hold. sock->lock serialises callers; the
 // conditions, the error word and the shut bits are read without it, the last two atomically.
 

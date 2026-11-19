@@ -191,6 +191,8 @@ const MAX_DNS: usize = 3;
 const HOSTNAME_MAX: usize = 64;
 const RETX_FIRST_NS: u64 = 2 * 1000000000;
 const RETX_MAX_NS: u64 = 64 * 1000000000;
+/// How often a second dhcp_client_stop looks whether the first has finished.
+const STOP_POLL_NS: u64 = 1000000;
 const REQUEST_TRIES: u32 = 4;
 const RENEW_MIN_NS: u64 = 60 * 1000000000;
 const BOOT_WAIT_NS: u64 = 10 * 1000000000;
@@ -1035,8 +1037,20 @@ unsafe fn start(nif: *mut netif) -> i32 {
     return 0;
 }
 
-/// dhcp.h's dhcp_client_stop: netif_unregister's. The client stops and lets go of the interface; on return nothing of
-/// it runs anywhere.
+/// Whether `cp` is still `nif`'s client and being stopped (another caller's stop has not finished).
+/// Safety: `cp` is a slot.
+unsafe fn stillStopping(cp: *mut Client, nif: *mut netif) -> bool {
+    let s = spin_lock_irqsave(lockOf(cp));
+    let b = Ptr.toBorrow(cp as *Client);
+    let on = b.in_use.loadWith(LoadOrdering.Relaxed) && b.nif as usize == nif as usize && b.stopping;
+    spin_unlock_irqrestore(lockOf(cp), s);
+    return on;
+}
+
+/// dhcp.h's dhcp_client_stop: netif_unregister's and tapctl's IPV4_SET's. The client stops and lets go of the
+/// interface; on return nothing of it runs anywhere. Two callers can race (IPV4_SET while the NIC is removed): the
+/// first to set `stopping` under the client's lock does the stop and drops the client's reference; another waits
+/// until it has, and drops nothing.
 /// Safety: `nif` is a registered interface.
 @export("dhcp_client_stop")
 unsafe fn stop(nif: *mut netif) {
@@ -1046,6 +1060,17 @@ unsafe fn stop(nif: *mut netif) {
     }
     var s = spin_lock_irqsave(lockOf(cp));
     let live = Ptr.toBorrowMut(cp);
+    if (!live.in_use.loadWith(LoadOrdering.Relaxed) || live.nif as usize != nif as usize) {
+        spin_unlock_irqrestore(lockOf(cp), s); // stopped since clientOf found it (and perhaps another's now)
+        return;
+    }
+    if (live.stopping) {
+        spin_unlock_irqrestore(lockOf(cp), s);
+        while (stillStopping(cp, nif)) {
+            thread_sleep_ns(STOP_POLL_NS);
+        }
+        return;
+    }
     live.stopping = true;
     spin_unlock_irqrestore(lockOf(cp), s);
     // From here nothing queues the work: the timer callback and the kicks queue it under the lock and only while not

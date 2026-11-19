@@ -3888,3 +3888,12 @@ See the [history index](README.md).
     long: the table, the pool, `df`, 208 MiB written, checked clean and
     read back at the next boot).
   - Report: `docs/audit/2026-11-18-r2-grown-disk-report.md`.
+- **R2, second PR: a static IPv4 address from user space (2026-11-19, roadmap 1.3).**
+  - `/dev/net/tapctl` takes `COSMO_NETCTL_IPV4_SET` (`struct
+    cosmo_netctl_ipv4`; `tap.cee`'s `ctlIpv4`): the machine's own interface
+    by name, not loopback or a guest's tap; its DHCP client stops, then the
+    address, the prefix's mask and the gateway are set. The snapshot
+    version stays 8.
+  - The CeeSafe rule's offset: `pipe_floor.c` folded into `pipe.cee` (its
+    `kobject_io_type` tables as read-only statics, ADR 0091).
+  - Report: `docs/audit/2026-11-19-r2-static-ipv4-report.md`.

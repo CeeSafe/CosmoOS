@@ -1,8 +1,8 @@
 // The pipe's ring, and anonymous pipes over it (kernel/include/kernel/pipe.h, docs/kernel/ipc/design.md), in CeeSafe
 // (roadmap 2.0 SA3). struct pipe and struct pipe_stats are CeeSafe's, generated into kernel/include/kernel/pipe_types.h,
 // which pipe.h includes (CeeSafe ADR 0029, 0030); so are the anonymous pipe's end and pair, which only this file uses.
-// The killable waits go through wait_floor.c, since a wait entry is C state no CeeSafe local may hold; pipe_floor.c keeps
-// the two end types, whose operations are this file's exported functions.
+// The killable waits go through wait_floor.c, since a wait entry is C state no CeeSafe local may hold. The two end types
+// are read-only C objects of this file's operations (READ_TYPE, WRITE_TYPE; pipe_floor.c's until roadmap 1.3 R2).
 //
 // One spinlock per ring, never held while blocking or while touching user memory (the system-call layer copies through
 // a kernel buffer). Waits are killable: a blocked reader or writer whose process is killed returns -EINTR. The ring
@@ -14,6 +14,7 @@
 @header(
     "kernel/kmalloc.h",
     "kernel/object.h",
+    "kernel/pipe.h",
     "kernel/spinlock.h",
     "kernel/string.h",
     "kernel/thread.h",
@@ -25,7 +26,21 @@ extern "C" {
     struct spinlock_t;
     struct waitqueue;
     struct kobject;
-    struct kobject_type;
+    // object.h's object types: each end's is an I/O type (KOBJECT_TYPE_IO), read-only (CeeSafe ADR 0091).
+    struct kobject_type {
+        name: *CChar;
+        release: extern "C" fn(*mut kobject);
+        flags: u32;
+    }
+    struct kobject_io_type {
+        base: kobject_type;
+        read: extern "C" fn(*mut kobject, *mut void, usize) -> i64;
+        write: extern "C" fn(*mut kobject, *void, usize) -> i64;
+        stat: extern "C" fn(*mut kobject, *mut cosmo_stat) -> i32;
+        ready: extern "C" fn(*mut kobject) -> u32;
+        set_nonblock: extern "C" fn(*mut kobject, i32) -> i32;
+        poll_wq: extern "C" fn(*mut kobject, u32) -> *mut waitqueue;
+    }
     struct cosmo_stat {
         @cname("type")
         type_: u32;
@@ -49,25 +64,30 @@ extern "C" {
     fn kfree(p: *mut void);
     fn memcpy(dst: *mut void, src: *void, n: usize) -> *mut void;
     fn memset(dst: *mut void, c: i32, n: usize) -> *mut void;
+    @cvalue("KOBJECT_TYPE_IO")
+    const KOBJECT_TYPE_IO: u32 = 1;
+    // The headers' constants, each checked against its C value (pipe_floor.c's _Static_assert until roadmap 1.3 R2).
+    @cvalue("PIPE_SIZE")
+    const PIPE_SIZE: u32 = 16384;
+    @cvalue("PIPE_BUF")
+    const PIPE_BUF: u32 = 4096;
+    @cvalue("COSMO_IO_READABLE")
+    const COSMO_IO_READABLE: u32 = 1;
+    @cvalue("COSMO_IO_WRITABLE")
+    const COSMO_IO_WRITABLE: u32 = 2;
+    @cvalue("COSMO_IO_HANGUP")
+    const COSMO_IO_HANGUP: u32 = 4;
+    @cvalue("COSMO_IO_ERROR")
+    const COSMO_IO_ERROR: u32 = 8;
+    @cvalue("COSMO_DT_FIFO")
+    const COSMO_DT_FIFO: u32 = 4;
+    @cvalue("EAGAIN")
+    const EAGAIN: i64 = 11;
+    @cvalue("ENOMEM")
+    const ENOMEM: i32 = 12;
+    @cvalue("EPIPE")
+    const EPIPE: i64 = 32;
 }
-
-// pipe_floor.c's: the two end types, which hold this file's exported operations below.
-extern "C" {
-    fn pipe_floor_read_type() -> *kobject_type;
-    fn pipe_floor_write_type() -> *kobject_type;
-}
-
-// pipe.h's and the headers' constants, which pipe_floor.c checks.
-const PIPE_SIZE: u32 = 16384; // ring capacity
-const PIPE_BUF: u32 = 4096;   // writes up to this size are never interleaved
-const COSMO_IO_READABLE: u32 = 1;
-const COSMO_IO_WRITABLE: u32 = 2;
-const COSMO_IO_HANGUP: u32 = 4;
-const COSMO_IO_ERROR: u32 = 8;
-const COSMO_DT_FIFO: u32 = 4;
-const EAGAIN: i64 = 11;
-const ENOMEM: i32 = 12;
-const EPIPE: i64 = 32;
 
 /// The ring. `readers` and `writers` are the live readers and writers, whatever they are (end objects, or a FIFO's
 /// opens); the ring gives end of file when `writers` is zero and the ring is empty, and -EPIPE when `readers` is zero. A
@@ -346,19 +366,19 @@ unsafe fn endRelease(obj: *mut kobject, reader: bool) {
 }
 
 /// Safety: as endRelease.
-@export("pipe_read_end_release")
+@callback // an end type's
 unsafe fn readEndRelease(obj: *mut kobject) {
     endRelease(obj, true);
 }
 
 /// Safety: as endRelease.
-@export("pipe_write_end_release")
+@callback // an end type's
 unsafe fn writeEndRelease(obj: *mut kobject) {
     endRelease(obj, false);
 }
 
 /// Safety: `obj` is a live read end, as ringRead.
-@export("pipe_end_read")
+@callback // an end type's
 unsafe fn endRead(obj: *mut kobject, buf: *mut void, len: usize) -> i64 {
     let e = endOf(obj);
     let nonblock = nonblockOf(e).loadWith(LoadOrdering.Relaxed) != 0;
@@ -366,7 +386,7 @@ unsafe fn endRead(obj: *mut kobject, buf: *mut void, len: usize) -> i64 {
 }
 
 /// Safety: `obj` is a live write end, as ringWrite.
-@export("pipe_end_write")
+@callback // an end type's
 unsafe fn endWrite(obj: *mut kobject, buf: *void, len: usize) -> i64 {
     let e = endOf(obj);
     let nonblock = nonblockOf(e).loadWith(LoadOrdering.Relaxed) != 0;
@@ -374,7 +394,7 @@ unsafe fn endWrite(obj: *mut kobject, buf: *void, len: usize) -> i64 {
 }
 
 /// Safety: `obj` is a live end and `st` writable.
-@export("pipe_end_stat")
+@callback // an end type's
 unsafe fn endStat(obj: *mut kobject, st: *mut cosmo_stat) -> i32 {
     let p = ringOf(obj);
     memset(st as *mut void, 0, layoutOf<cosmo_stat>().size);
@@ -389,24 +409,24 @@ unsafe fn endStat(obj: *mut kobject, st: *mut cosmo_stat) -> i32 {
 }
 
 /// Safety: `obj` is a live end.
-@export("pipe_end_read_ready")
+@callback // an end type's
 unsafe fn endReadReady(obj: *mut kobject) -> u32 => ringReadyRead(ringOf(obj));
 
 /// Safety: `obj` is a live end.
-@export("pipe_end_write_ready")
+@callback // an end type's
 unsafe fn endWriteReady(obj: *mut kobject) -> u32 => ringReadyWrite(ringOf(obj));
 
 /// Safety: `obj` is a live end.
-@export("pipe_end_read_poll_wq")
+@callback // an end type's
 unsafe fn endReadPollQueue(obj: *mut kobject, events: u32) -> *mut waitqueue => readQueue(ringOf(obj));
 
 /// Safety: `obj` is a live end.
-@export("pipe_end_write_poll_wq")
+@callback // an end type's
 unsafe fn endWritePollQueue(obj: *mut kobject, events: u32) -> *mut waitqueue => writeQueue(ringOf(obj));
 
 /// The mode before; `on` below zero only asks.
 /// Safety: `obj` is a live end.
-@export("pipe_end_set_nonblock")
+@callback // an end type's
 unsafe fn endSetNonblock(obj: *mut kobject, on: i32) -> i32 {
     let mode = nonblockOf(endOf(obj));
     let was: i32 = if (mode.loadWith(LoadOrdering.Relaxed) != 0) 1 else 0;
@@ -415,6 +435,25 @@ unsafe fn endSetNonblock(obj: *mut kobject, on: i32) -> i32 {
     }
     return was;
 }
+
+/// The anonymous pipe's two end types, read-only C objects of this file's operations (pipe_floor.c's until roadmap
+/// 1.3 R2, the CeeSafe rule's offset for R2's C).
+static READ_TYPE: kobject_io_type = kobject_io_type {
+    base: kobject_type { name: "pipe-read\0".ptr as *CChar, release: readEndRelease, flags: KOBJECT_TYPE_IO },
+    read: endRead,
+    stat: endStat,
+    ready: endReadReady,
+    set_nonblock: endSetNonblock,
+    poll_wq: endReadPollQueue,
+};
+static WRITE_TYPE: kobject_io_type = kobject_io_type {
+    base: kobject_type { name: "pipe-write\0".ptr as *CChar, release: writeEndRelease, flags: KOBJECT_TYPE_IO },
+    write: endWrite,
+    stat: endStat,
+    ready: endWriteReady,
+    set_nonblock: endSetNonblock,
+    poll_wq: endWritePollQueue,
+};
 
 /// Creates an anonymous pipe: the two referenced end objects (one reference each, owned by the caller), or -ENOMEM.
 /// Safety: both outputs are writable, and the caller may allocate.
@@ -431,8 +470,8 @@ unsafe fn create(read_end: *mut *mut kobject, write_end: *mut *mut kobject) -> i
     }
     let both = Ptr.toBorrowMut(pair);
     both.ring = ring;
-    kobject_init(borrow mut both.rd.obj as *mut kobject, pipe_floor_read_type());
-    kobject_init(borrow mut both.wr.obj as *mut kobject, pipe_floor_write_type());
+    kobject_init(borrow mut both.rd.obj as *mut kobject, borrow READ_TYPE.base as *kobject_type);
+    kobject_init(borrow mut both.wr.obj as *mut kobject, borrow WRITE_TYPE.base as *kobject_type);
     both.rd.pair = pair;
     both.wr.pair = pair;
     let counts = Ptr.toBorrowMut(ring);

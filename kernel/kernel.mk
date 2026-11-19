@@ -83,7 +83,6 @@ KERNEL_GENERIC_SRCS := \
 	kernel/tty/pty.c \
 	kernel/tty/ttytest.c \
 	kernel/ipc/pipe.c \
-	kernel/ipc/pipe_floor.c \
 	kernel/ipc/pipetest.c \
 	kernel/ipc/fifo.c \
 	kernel/ipc/fifotest.c \

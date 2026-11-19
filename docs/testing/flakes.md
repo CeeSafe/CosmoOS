@@ -138,6 +138,13 @@ which changes nothing under `tests/host/` or in the quiesce code. The
 x86-64 `make host-test` of the same tree passed on the other machine at
 the same time. Nothing was changed.
 
+**Fourth sighting, 2026-11-18:** `tests/host/test_quiesce.c:426`
+(`saw_new_cpu`) alone, in a `gmake -j4 host-test` on the developer's Mac
+during roadmap 1.3 R2's second PR (a static IPv4 address; `pipe_floor.c`
+into `pipe.cee`), the one-minute load average between 98 and 138 (other
+sessions' CeeSafe builds and applications). The next run of the same tree,
+the load at 38, passed. Nothing was changed.
+
 **Observed once, firmware handover in `test-harness-retry` (2026-10-09):**
 the first x86-64 QEMU process printed no `cosmoboot-uefi` banner during the
 30 s handover window, so `tests/boot/run_boot_test.py` killed it and
@@ -2968,6 +2975,22 @@ Attempt 2 (`gh run rerun --failed`) ended in `startup_failure` with no
 jobs, and GitHub refused a third attempt; the merge of this entry gave
 main a fresh run.
 
+## `test-net-login`'s `by name`: `example.com` answered 403, 2026-11-19
+
+One sighting, both architectures at once: CI run 44439228605 (PR #532 at
+`e543c787`, a documentation commit), `net-login test (x86_64)` and
+`(aarch64)`, both at 01:50 UTC: `test-net-login: FAIL: by name: three
+attempts failed`, with `wget: server returned error: HTTP/1.1 403
+Forbidden` for `http://example.com/` and for `https://example.com/`. Each
+attempt's `nslookup example.com` passed, and the HTTPS request completed
+its handshake against the site's certificate before the 403, so the
+guest's resolver, TCP and TLS worked and the answer was the site's (or a
+cache in front of it) to GitHub's runners. The run before, on
+`b1370163` (one commit earlier, the same code), passed both jobs, and the
+site answered 200 to both URLs from this developer's machine at 02:26.
+Not a CosmoOS defect and not a timing bound, so not on the list; the
+`by name` stage fetches a public site by design. The jobs were rerun.
+
 ## `test-snapshot`: `init: restart requested` after the prompt, 2026-10-21
 
 One sighting, x86-64, CI run 39533566121 (`install test (x86_64)` on
@@ -5189,6 +5212,27 @@ instructions include `0xeceb33a: movl 0x4bc(%rip), %ecx`, and CPUs 1-3
 were halted at `0xeccf9e1` -- the sixth sighting's addresses. The
 firmware's own state again, on a kernel and archive of yet another size.
 Still not attributed.
+**Eighth sighting, 2026-11-19:** CI, PR #532 at `b1370163` (run
+44434544780, job 135260315189, `install test (x86_64)`), `test-snapshot`'s
+`install` boot, the first of the step: up to `paging: root at ...,
+9/14 pool pages used` (archive 20779008 bytes), then nothing (`no prompt
+after the first prompt before the deadline (301 s from launch; the last
+line at 2.8 s)`). The same job's `test-install` had passed. The files
+(artifact `test-install-x86_64`) agree with the sixth and seventh
+sightings': 32 requests and 29 pushes in the trace, the queue idle
+(`inuse` 0, `last_avail_idx` = `used_idx` = 29), CPU 0 running at
+`0xeceb370` and then `0xeceb319` (CR3 `0xf801000`), CPUs 1-3 halted at
+`0xeccf9e1`. The PR changes the DHCP client and tapctl, which run only
+after the kernel's first line. Still not attributed.
+**Ninth sighting, 2026-11-19:** CI, PR #532 at `e543c787` (a
+documentation commit; run 44439228605, `fsck test (x86_64)`),
+`test-fsck`'s `class-dup-name` boot: up to `paging: root at 0xc2e2000
+(user root 0x0), 9/14 pool pages used`, then nothing (`the last line at
+2.4 s`). The same files as the eighth (artifact `test-fsck-x86_64`): 32
+requests and 29 pushes, the queue idle at 29, CPU 0 running at
+`0xeceb370`, CPUs 1-3 halted at `0xeccf9e1`. Both of this PR's sightings
+read an archive of 20779008 bytes, in two different tests' boots; the
+sixth sighting's was 20107776 bytes.
 
 ## `test-be`'s `be-space` boot on an encrypted root out of time, 2026-10-24
 
