@@ -151,7 +151,7 @@ A seed disk (cloud-init's NoCloud layout: `meta-data` and `user-data`,
 the subset named in the design note) gives the SSH key, the host name
 and the network. The root partition and file system grow to the disk.
 
-- [ ] **Acceptance:** `make test-cloud` (both architectures): the image is
+- [x] **Acceptance:** `make test-cloud` (both architectures): the image is
   copied to a disk four times its size and booted with a seed; the
   harness logs in over SSH with the seed's key and sees the host name and
   a root file system of the disk's size. Without a seed the boot is as

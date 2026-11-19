@@ -230,6 +230,60 @@ jobs:
             out/**/*.log
           if-no-files-found: ignore
 
+  # Roadmap 1.3 R2: the cloud image (scripts/mkcloudimage.py), an install
+  # of the published live image made in QEMU. Its GUIDs are drawn at the
+  # install, so it is not in `make release`'s set, which the two builds
+  # must make byte for byte; it is made once, from the set that is
+  # published, booted by R2's acceptance test, and added to the signed
+  # SHA256SUMS by the publish step.
+  cloud:
+    name: cloud image (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    needs: [image, build]
+    container:
+      image: ${{ needs.image.outputs.toolchain }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: The published set
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-${{ matrix.arch }}-a
+          path: published
+
+      - name: Install the live image in QEMU, as QCOW2
+        env:
+          QEMU_ARCH: ${{ matrix.arch }}
+        run: python3 scripts/mkcloudimage.py --image published/cosmoos-${{ matrix.arch }}.img --out cloud/cosmoos-${{ matrix.arch }}-cloud.qcow2 --workdir out/cloud-work --timeout 380
+
+      - name: Boot it with a seed, again, and without one (test-cloud)
+        env:
+          QEMU_ARCH: ${{ matrix.arch }}
+        run: python3 tests/boot/cloud_test.py --cloud cloud/cosmoos-${{ matrix.arch }}-cloud.qcow2 --workdir out/test-cloud --timeout 380
+
+      - name: Upload the cloud image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cloud-${{ matrix.arch }}
+          path: cloud/cosmoos-${{ matrix.arch }}-cloud.qcow2
+
+      - name: Upload logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: logs-cloud-${{ matrix.arch }}
+          path: out/**/*.log
+          if-no-files-found: ignore
+
   guide-macos:
     name: guide (macos, ${{ matrix.arch }})
     runs-on: macos-15
@@ -263,7 +317,7 @@ jobs:
   publish:
     name: GitHub release
     runs-on: ubuntu-24.04
-    needs: [guard, image, reproducible, acceptance, guide-macos]
+    needs: [guard, image, reproducible, acceptance, guide-macos, cloud]
     environment: release   # the release key (BUILD-2)
     container:
       image: ${{ needs.image.outputs.toolchain }}
@@ -293,6 +347,13 @@ jobs:
           pattern: release-*-a
           path: sets
 
+      - name: The cloud images (job cloud)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cloud-*
+          path: cloud
+          merge-multiple: true
+
       - name: The release key
         env:
           KEY: ${{ secrets.COSMOOS_RELEASE_KEY }}
@@ -315,6 +376,11 @@ jobs:
           # The source tarball (make dist): the generated C beside each .cee
           # source, so a build from it, a self-hosted one included, needs no
           # ceesafec (CeeSafe's ADR 0023). In the signed SHA256SUMS with the sets.
+          # The cloud images (roadmap 1.3 R2): not in the reproducible sets; in the signed SHA256SUMS.
+          for arch in x86_64 aarch64; do
+            cp "cloud/cosmoos-$arch-cloud.qcow2" dist/
+            (cd dist && sha256sum "cosmoos-$arch-cloud.qcow2" >> SHA256SUMS)
+          done
           python3 scripts/dist.py --out dist
           (cd dist && sha256sum cosmoos-*-src.tar.gz >> SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)

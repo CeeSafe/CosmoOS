@@ -3143,6 +3143,18 @@ matrix's `QEMU_SMP=2` and `4` boots, `test-smp2`, `test-chaos` and
 the step the first one named is due: a baseline of the thread
 identities before the test, so the dump names the one that went.
 
+**Third sighting, 2026-11-19:** CI, PR #534 at `dc391858` (run
+44487990666, job 135436569561, `entropy boots (aarch64)`), the
+`test-modcycle` debug boot (`CeeSafe driver load and unload cycles`):
+`check failed: threads_settle(before) at line 998 (548 ms)` after the
+test's own line passed (100 runs of 32, 3200 trips, nesting 1);
+`threads_settle: 18 threads after 200 ms, expected 19`, and the dump
+lists only the boot's resident threads (kmain, four idles, reaper,
+quiesce, four netrx, four irqpoll, blk-timeout, xhci/0, ahci/0) -- the
+count below again. The PR changes a host script, a boot harness and the
+workflows, no kernel code. Three sightings, all AArch64; still not
+attributed (backlog TEST-18). The run was replaced by the next push's.
+
 ## `irqpoll-boost` over its gap bound, 2026-10-10
 
 `SELFTEST: irqpoll-boost ... FAIL: check failed: gap_ms <= BOOST_GAP_MS
@@ -5233,6 +5245,19 @@ requests and 29 pushes, the queue idle at 29, CPU 0 running at
 `0xeceb370`, CPUs 1-3 halted at `0xeccf9e1`. Both of this PR's sightings
 read an archive of 20779008 bytes, in two different tests' boots; the
 sixth sighting's was 20107776 bytes.
+**Tenth sighting, 2026-11-19:** CI on main, #532's merge commit
+`5f25f805` (run 44457694608, job 135336822904, `upgrade test (x86_64)`),
+`test-be`'s `be-set` boot, after its `crash-intent` stage passed: up to
+`paging: root at 0xc2e1000 (user root 0x0), 9/14 pool pages used`
+(archive 20779008 bytes), then nothing (`no prompt after the first
+prompt before the deadline (301 s from launch; the last line at 2.2
+s)`). The same files as the eighth and ninth (artifact
+`test-upgrade-x86_64`): 32 requests and 29 pushes in the trace, the last
+request a 0-byte one; the queue idle (`inuse` 0, `last_avail_idx` =
+`used_idx` = 29); CPU 0 running at `0xeceb319` and then `0xeceb370` (CR3
+`0xf801000`), CPUs 1-3 halted at `0xeccf9e1`. The third sighting in one
+day, all three x86-64, all on that archive size. Still not attributed;
+the job was rerun.
 
 ## `test-mirror`'s `esp-repaired`: no line of the loader's on the console, 2026-11-19
 

@@ -3907,3 +3907,15 @@ See the [history index](README.md).
     (`make host-test`) reads every layout it writes and damaged ones.
   - The CeeSafe rule's offset: `sync.c` ported whole.
   - Report: `docs/audit/2026-11-19-r2-seed-report.md`.
+- **R2, fourth PR: the cloud image and `make test-cloud`; R2 done (2026-11-19, roadmap 1.3).**
+  - `scripts/mkcloudimage.py` (`make cloud-image`): the live image installs
+    itself on a 256 MiB disk in QEMU, as `cosmoos-ARCH-cloud.qcow2`. Not
+    byte-reproducible, so outside `make release`'s set: the release
+    workflow's `cloud` job makes it from the published live image, boots
+    it, and `publish` signs it into `SHA256SUMS`.
+  - `make test-cloud` (`tests/boot/cloud_test.py`; CI, in the `net-login`
+    job): the image on a disk four times its size with an ISO seed (ssh by
+    the seed's key to the seed's address, its host name, `df` the grown
+    root), again with a FAT seed (nothing applied twice), and with no seed.
+  - R2 ticked in `docs/roadmap-1.3.md`.
+  - Report: `docs/audit/2026-11-19-r2-cloud-report.md`.
