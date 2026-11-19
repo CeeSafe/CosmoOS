@@ -2,11 +2,13 @@
 
 OpenSSH's `sftp-server` in the base system (the scp-sftp unit,
 2026-10-14), and OpenSSH's clients and `sshd` as two packages (roadmap
-1.3 R3, "The packages" below). The ssh server is dropbear (`ports/dropbear/`), which
-runs an external program for the `sftp` subsystem and ships none of its
-own; current OpenSSH `scp` clients use that subsystem too. It is OpenSSH's
-because that is the implementation every `sftp` and `scp` client is
-written against.
+1.3 R3, "The packages" below).
+
+The base system's ssh server is dropbear (`ports/dropbear/`). It runs
+an external program for the `sftp` subsystem and ships none of its own,
+and current OpenSSH `scp` clients use that subsystem too. The program is
+OpenSSH's because that is the implementation every `sftp` and `scp`
+client is written against.
 
 | Source | Version | SHA-256 |
 |---|---|---|
