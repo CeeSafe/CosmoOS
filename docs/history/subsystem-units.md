@@ -3945,3 +3945,14 @@ See the [history index](README.md).
     the target's loopback do not end), USR-12
     (a bare `scp` is dropbear's).
   - Report: `docs/audit/2026-11-19-r3-openssh-report.md`.
+- **R3, third PR: the ports repository in the release set and the published repository; R3 done (2026-11-20, roadmap 1.3).**
+  - `scripts/mkrelease.py` writes `cosmoos-ARCH-ports.tar` (the ports
+    repository's INDEX and packages) into the set and its `SHA256SUMS`.
+  - `scripts/publish-repo.py` checks the tar's INDEX against the release
+    key and each package against its stanza, refuses a name or file
+    boot.tar's repository has, and publishes one INDEX of both.
+  - `scripts/check-reproducible.sh` builds the ports in both trees and
+    compares `pkg/server/INDEX`; CI's release-set job's limit is 60
+    minutes.
+  - R3 ticked in `docs/roadmap-1.3.md`.
+  - Report: `docs/audit/2026-11-20-r3-publish-report.md`.
