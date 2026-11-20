@@ -123,7 +123,7 @@ Branch CI:
     `lockup-sample-busy` on a TLB shootdown, main's code
     (`docs/testing/flakes.md`, backlog TEST-30).
 - `601abbc1` (run 44636043975): PASS.
-- This head: PENDING.
+- `65042ffb` (run 44644236923): PASS.
 
 ## Limits
 
