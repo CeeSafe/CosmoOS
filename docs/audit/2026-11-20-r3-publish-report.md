@@ -113,6 +113,9 @@ Branch CI:
 - `574e94a8` (run 44677881609): "build, boot, analyze (aarch64, build)"
   was cancelled at its 45-minute limit in the reproducible check, above;
   every other job passed. The release-set jobs took 1426 s and 1490 s.
+- `e30af109` (run 44684284236): PASS. The build parts took 2257 s
+  (x86-64) and 2132 s (AArch64), and the release-set jobs 2207 s and
+  1482 s.
 
 ## Limits
 
