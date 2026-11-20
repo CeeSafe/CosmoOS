@@ -2999,6 +2999,20 @@ Attempt 2 (`gh run rerun --failed`) ended in `startup_failure` with no
 jobs, and GitHub refused a third attempt; the merge of this entry gave
 main a fresh run.
 
+## `completion`: the wait measured 11 ms short of the sleep it waited on, 2026-11-20
+
+One sighting, x86-64, main's CI run 44718105032 (the merge of #538,
+`f15ea9dc`, a documentation PR), "build, boot, analyze (x86_64,
+stress)", the step "Boot test with the harness's first attempt broken
+(debug)": `SELFTEST: completion ... FAIL: check failed:
+clock_since_ns(t0) >= MS(10) at line 1363 (11 ms)`, `SELFTEST: FAIL (1
+of 529)`. Every other job of the run passed. Not a flake but a test
+defect: `t0` was read after `thread_create`, so the part of the
+completer's 10 ms sleep that ran before it was not measured; usually the
+4 ms tick rounded the sleep up past what was lost. Backlog TEST-31,
+fixed the same day (`docs/audit/2026-11-20-test31-completion-report.md`);
+`io-poll` has the same order with a 10 ms margin (TEST-32).
+
 ## `test-net-login`'s `by name`: `example.com` answered 403, 2026-11-19
 
 One sighting, both architectures at once: CI run 44439228605 (PR #532 at
@@ -3178,6 +3192,18 @@ quiesce, four netrx, four irqpoll, blk-timeout, xhci/0, ahci/0) -- the
 count below again. The PR changes a host script, a boot harness and the
 workflows, no kernel code. Three sightings, all AArch64; still not
 attributed (backlog TEST-18). The run was replaced by the next push's.
+
+**Fourth sighting, 2026-11-20:** local, AArch64 debug, `QEMU_SMP=1`,
+the matrix of the TEST-31 branch (PR #539, `9b4ddcb3`) on the other
+machine: `check failed: threads_settle(before) at line 998 (764 ms)`;
+`threads_settle: 9 threads after 200 ms, expected 10`, and the dump
+lists only the boot's resident threads (kmain, idle, reaper, quiesce,
+netrx/0, irqpoll/0, blk-timeout, xhci/0, ahci/0) -- the count below
+again. The branch changes only `completion`'s self-test, which runs
+after `sched-restore-loop` (`completion ... ok (34 ms)` ten lines later).
+The same matrix's other AArch64 boots passed, and so did the step run
+again (278.0 s). Four sightings, all AArch64, three of them the count
+below at one CPU or more; still not attributed (backlog TEST-18).
 
 ## `irqpoll-boost` over its gap bound, 2026-10-10
 

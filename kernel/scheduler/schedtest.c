@@ -1346,7 +1346,7 @@ bool selftest_semaphore(const char **reason)
 static void completer_entry(void *arg)
 {
     struct completion *c = arg;
-    thread_sleep_ms(10);
+    thread_sleep_ms(30);
     complete(c);
 }
 
@@ -1355,12 +1355,12 @@ bool selftest_completion(const char **reason)
     unsigned before = thread_count();
     struct completion c;
     completion_init(&c, "selftest-completion");
+    uint64_t t0 = clock_now_ns(); /* before the completer exists: it may run at once (TEST-31) */
     struct thread *t = thread_create(completer_entry, &c, "completer", SCHED_PRIO_DEFAULT);
-    CHECK(t != NULL);
-    CHECK(!completion_done(&c));
-    uint64_t t0 = clock_now_ns();
+    CHECK(t != NULL && !completion_done(&c));
+    thread_sleep_ms(9); /* TEST-31's adversary: a waiter preempted after thread_create, well before the completion */
     wait_for_completion(&c);
-    CHECK(clock_since_ns(t0) >= MS(10));
+    CHECK(clock_since_ns(t0) >= MS(30));
     CHECK(completion_done(&c));
     wait_for_completion(&c); /* already done: returns immediately */
     thread_join(t);
