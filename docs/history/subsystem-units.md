@@ -3961,7 +3961,8 @@ See the [history index](README.md).
     MS(10)` at 11 ms): `t0` was read after `thread_create`, so the part
     of the completer's 10 ms sleep before it went unmeasured.
   - `t0` is now read before `thread_create`; the test's waiter arrives
-    9 ms into the sleep, which fails the old order on every boot;
+    9 ms into the completer's sleep, now 30 ms, which fails the old order
+    on every boot and still leaves the wait pending;
     `tools/completion-wait-probe.py`. `io-poll` has the same order with
     a 10 ms margin: backlog TEST-32.
   - Report: `docs/audit/2026-11-20-test31-completion-report.md`.

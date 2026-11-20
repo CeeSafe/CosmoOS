@@ -46,48 +46,51 @@ completer's sleep, so the bound did not hold.
 
 ## The fix
 
-`t0` is read before `thread_create`. The wait then covers the whole
-sleep whenever the completer starts. The assertion is unchanged: the
-waiter still has to block until the completer completes, at least 10 ms
-after the completer could first run.
+`t0` is read before `thread_create`, so the measured wait covers the
+whole sleep whenever the completer starts. The assertion is kept: the
+waiter must block until the completer completes, no sooner than its
+sleep after `t0`.
 
 ## The proof
 
-The test now carries its adversary. The completer sets `started` as its
-sleep begins, and the test waits for that and then sleeps 9 ms more
-before `wait_for_completion`, as a waiter preempted after
-`thread_create` would. With `t0` read before the completer exists the
-wait still measures at least 10 ms. Read after, as on main, it measures
-what is left of the sleep plus the 9 ms: under 10 ms unless the sleep
-overran by more than 9 ms, which a quiet boot's 4 ms tick does not do.
+The test now carries its adversary: after `thread_create` the test
+sleeps 9 ms before `wait_for_completion`, as a waiter preempted there
+would, and the completer sleeps 30 ms (it slept 10). The check is
+`clock_since_ns(t0) >= MS(30)`.
+- With `t0` read before the completer exists, the wait measures the
+  whole sleep, and still blocks: the waiter arrives 9-13 ms in, about
+  20 ms before the completion.
+- Read after, where main reads it (after the adversary's 9 ms), it
+  measures what is left of the sleep: under 30 ms on every boot, at any
+  CPU count, since the completer begins its sleep during or before the
+  9 ms.
 
-`tools/completion-wait-probe.py` builds and boots the debug `make test`.
-`--old` reverse-applies the fix commit (`completion's self-test times
-the wait from before the completer exists (TEST-31)`) in a throwaway
-worktree, keeping the adversary. It was run on the other machine in the
-CI image at four CPUs, on `c51df81e`:
+The first version of this branch kept the 10 ms sleep and had the waiter
+arrive 9 ms into it. Codex's review pointed out that on one CPU the
+waiter's tick-rounded 9 ms could end after the completion, so the test
+no longer waited on a pending completion. The 30 ms sleep keeps that
+case. Kernel C may not grow (CI's `cee-share`), so the change adds no
+lines: the two checks after `thread_create` are one.
+
+`tools/completion-wait-probe.py` builds and boots the debug `make test`
+at one CPU. `--old` reverse-applies the fix commit (`completion's
+self-test times the wait from before the completer exists (TEST-31)`) in
+a throwaway worktree, keeping the adversary. It was run on the other
+machine in the CI image (four host CPUs), on `9b4ddcb3`:
 
 | | x86-64 | AArch64 |
 |---|---|---|
-| fixed | PASS: `completion ... ok (14 ms)`, `SELFTEST: PASS (529 tests)` | PASS: `ok (17 ms)`, 529 tests |
-| `--old` | PASS: `completion ... FAIL: check failed: clock_since_ns(t0) >= MS(10) at line 1376 (14 ms)`, `SELFTEST: FAIL (1 of 529)` | PASS: the same check, `(17 ms)`, 1 of 529 |
+| fixed | PASS: `completion ... ok (34 ms)`, `SELFTEST: PASS (529 tests)` | PASS: `ok (34 ms)`, 529 tests |
+| `--old` | PASS: `completion ... FAIL: check failed: clock_since_ns(t0) >= MS(30) at line 1363 (31 ms)`, `SELFTEST: FAIL (1 of 529)` | PASS: the same check, `(34 ms)`, 1 of 529 |
 
-The test as a whole takes 14-17 ms; the check fails because the measured
-wait is under 10 ms.
+The time in brackets is the whole test's, not the measured wait.
 
 ## Validation
 
-`make matrix` on `c51df81e`, on the other machine, in the CI image with
+`make matrix` on `9b4ddcb3`, on the other machine, in the CI image with
 the pinned ceesafec 0.57.1, one architecture after the other:
 
-| step | x86-64 | AArch64 |
-|---|---|---|
-| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
-| `host-test`, `fuzz` | PASS | PASS |
-| `analyze` | clean, 15 baselined | clean, 15 baselined |
-| debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.6 / 252.8 / 246.8 s | 276.2 / 286.1 / 305.0 s |
-| `test-smp2`, `test-chaos`, `test-harness-retry` | 238.1 / 244.1 / 246.7 s | 281.6 / 306.7 / 305.2 s |
-| release `test` | 18.9 s | 23.3 s |
+(running)
 
 ## Records
 
