@@ -2999,6 +2999,20 @@ Attempt 2 (`gh run rerun --failed`) ended in `startup_failure` with no
 jobs, and GitHub refused a third attempt; the merge of this entry gave
 main a fresh run.
 
+## `completion`: the wait measured 11 ms short of the sleep it waited on, 2026-11-20
+
+One sighting, x86-64, main's CI run 44718105032 (the merge of #538,
+`f15ea9dc`, a documentation PR), "build, boot, analyze (x86_64,
+stress)", the step "Boot test with the harness's first attempt broken
+(debug)": `SELFTEST: completion ... FAIL: check failed:
+clock_since_ns(t0) >= MS(10) at line 1363 (11 ms)`, `SELFTEST: FAIL (1
+of 529)`. Every other job of the run passed. Not a flake but a test
+defect: `t0` was read after `thread_create`, so the part of the
+completer's 10 ms sleep that ran before it was not measured; usually the
+4 ms tick rounded the sleep up past what was lost. Backlog TEST-31,
+fixed the same day (`docs/audit/2026-11-20-test31-completion-report.md`);
+`io-poll` has the same order with a 10 ms margin (TEST-32).
+
 ## `test-net-login`'s `by name`: `example.com` answered 403, 2026-11-19
 
 One sighting, both architectures at once: CI run 44439228605 (PR #532 at
