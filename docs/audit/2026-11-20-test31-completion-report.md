@@ -90,7 +90,20 @@ The time in brackets is the whole test's, not the measured wait.
 `make matrix` on `9b4ddcb3`, on the other machine, in the CI image with
 the pinned ceesafec 0.57.1, one architecture after the other:
 
-(running)
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.9 / 241.9 / 244.5 s | 278.0 (run again) / 282.3 / 301.0 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 239.0 / 243.2 / 245.1 s | 289.8 / 304.1 / 301.7 s |
+| release `test` | 18.7 s | 23.3 s |
+
+The AArch64 `QEMU_SMP=1` boot failed the first time, in
+`sched-restore-loop`: `threads_settle: 9 threads after 200 ms, expected
+10`. That is backlog TEST-18's fourth sighting (flakes.md). That test
+runs before `completion`, which passed in the same boot. The step passed
+when run again.
 
 ## Records
 

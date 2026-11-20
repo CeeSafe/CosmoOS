@@ -3193,6 +3193,18 @@ count below again. The PR changes a host script, a boot harness and the
 workflows, no kernel code. Three sightings, all AArch64; still not
 attributed (backlog TEST-18). The run was replaced by the next push's.
 
+**Fourth sighting, 2026-11-20:** local, AArch64 debug, `QEMU_SMP=1`,
+the matrix of the TEST-31 branch (PR #539, `9b4ddcb3`) on the other
+machine: `check failed: threads_settle(before) at line 998 (764 ms)`;
+`threads_settle: 9 threads after 200 ms, expected 10`, and the dump
+lists only the boot's resident threads (kmain, idle, reaper, quiesce,
+netrx/0, irqpoll/0, blk-timeout, xhci/0, ahci/0) -- the count below
+again. The branch changes only `completion`'s self-test, which runs
+after `sched-restore-loop` (`completion ... ok (34 ms)` ten lines later).
+The same matrix's other AArch64 boots passed, and so did the step run
+again (278.0 s). Four sightings, all AArch64, three of them the count
+below at one CPU or more; still not attributed (backlog TEST-18).
+
 ## `irqpoll-boost` over its gap bound, 2026-10-10
 
 `SELFTEST: irqpoll-boost ... FAIL: check failed: gap_ms <= BOOST_GAP_MS
