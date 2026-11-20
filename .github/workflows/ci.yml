@@ -212,8 +212,12 @@ jobs:
     # most 54.2, and PR #401's was cancelled at 55.1 in its last step with
     # every boot passed (run 39061354017). A hang guard; each boot keeps its
     # own timeout. 70 was the limit of the one job until 2026-10-24, when it
-    # was split in three; the longest part is about 25 minutes.
-    timeout-minutes: 45
+    # was split in three; the longest part is about 25 minutes. 45 until
+    # 2026-11-20 (R3): the reproducible check builds the ports repository in
+    # each tree (the release set carries it), and the build part went from
+    # 1579 s (x86-64) and 1587 s (AArch64) on main (run 44655419063) to 2399 s
+    # and past 2700 s, cancelled in that check (run 44677881609).
+    timeout-minutes: 60
     env:
       # SIGNING=dev generates an ephemeral signing key here on first use; it
       # lives only in this job's filesystem and is never uploaded (the
@@ -1406,7 +1410,12 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
-    timeout-minutes: 40
+    # R3 (2026-11-20): the set carries the ports repository, built in each
+    # reproducible tree and again by make release. 40 until then, when the
+    # job's two make steps took 673 s (x86-64) and 830 s (AArch64), run
+    # 44655419063; with the ports, the same steps took 2499 s and 2575 s in
+    # the CI image at four CPUs on the Linux host (the 2026-11-20 R3 publish report).
+    timeout-minutes: 60
     env:
       COSMO_KEYDIR: /tmp/cosmo-ci-keys
     steps:
@@ -1422,7 +1431,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .cache/ports
-          key: ports-${{ hashFiles('ports/busybox/busybox.mk', 'ports/dropbear/dropbear.mk', 'ports/openssh/openssh.mk', 'ports/mbedtls/mbedtls.mk', 'ports/tcc/tcc.mk') }}
+          key: ports-server-${{ hashFiles('ports/*/*.mk') }}
 
       - name: Release build twice, every output and the release set compared
         run: make ARCH=${{ matrix.arch }} BUILD=release reproducible

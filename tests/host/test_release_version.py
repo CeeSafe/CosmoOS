@@ -55,7 +55,7 @@ def make_set(d, key, build_id, version, extra=None):
     with open(os.path.join(d, "cosmoos-aarch64-cosmo-upgrade.cpk"), "wb") as f:
         f.write(pkgbuild.pack("cosmo-upgrade", version, "test", [("sbin/cosmo-upgrade", 0o755, b"x")], key))
     for n in ("cosmoos-aarch64.img", "cosmoos-aarch64.qcow2", "cosmoos-aarch64.vmdk", "cosmoos-aarch64.iso", "cosmoos-aarch64-BOOTAA64.EFI", "cosmoos-aarch64-boot.tar",
-              "cosmoos-aarch64-cmdline", "cosmoos-aarch64-manifest", "cosmoos-aarch64-cosmo-upgrade",
+              "cosmoos-aarch64-cmdline", "cosmoos-aarch64-manifest", "cosmoos-aarch64-cosmo-upgrade", "cosmoos-aarch64-ports.tar",
               "SHA256SUMS", "SHA256SUMS.sig") + ((extra,) if extra else ()):
         open(os.path.join(d, n), "wb").close()
     return d

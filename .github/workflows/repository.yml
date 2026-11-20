@@ -99,7 +99,8 @@ jobs:
           mkdir rel
           gh release download "$TAG" --dir rel --pattern 'SHA256SUMS*' --pattern 'cosmoos-*-boot.tar' \
             --pattern 'cosmoos-*-kernel.elf' --pattern 'cosmoos-*-cmdline' --pattern 'cosmoos-*-manifest' \
-            --pattern 'cosmoos-*-cosmo-upgrade' --pattern 'cosmoos-*-cosmo-upgrade.cpk' --pattern 'cosmoos-*-BOOT*.EFI'
+            --pattern 'cosmoos-*-cosmo-upgrade' --pattern 'cosmoos-*-cosmo-upgrade.cpk' --pattern 'cosmoos-*-BOOT*.EFI' \
+            --pattern 'cosmoos-*-ports.tar'
           gh release view "$TAG" --json publishedAt --jq .publishedAt > rel-published
           ls -l rel
 

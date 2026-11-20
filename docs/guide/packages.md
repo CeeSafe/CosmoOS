@@ -6,7 +6,10 @@ where the installer copied the live image's repository (the packages the
 image was built with), and `cosmoos`, the project's network repository,
 `https://vkuttyp.github.io/CosmoOS/repo/ARCH` (`x86_64` or `aarch64`),
 which each release republishes ([Network repositories](#network-repositories)
-below). `pkg` checks every index and every package against the public
+below). A release after v1.1.1 adds the software a server needs to it:
+`openssh-client` and `openssh-server` (OpenSSH 10.6), `curl`, `git` and
+`nano`. `pkg install openssh-server`, then `svc start sshd`, puts OpenSSH's
+sshd on port 22 in dropbear's place. `pkg` checks every index and every package against the public
 keys in `/etc/pkg/keys`, and refuses anything signed by another key or
 whose checksum does not match.
 

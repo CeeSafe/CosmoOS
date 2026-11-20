@@ -10,6 +10,13 @@ same stanzas, the releases kept); two more releases (serial 3 and 4) and
 only: LATEST and the repository stay the newer release's); and refusals, each exit 1 naming why, of a
 SHA256SUMS with a digest changed (its signature), a file changed, a file
 missing, and a repo/INDEX signed by another key.
+
+The ports repository (roadmap 1.3 R3): a release with
+cosmoos-ARCH-ports.tar adds its packages beside boot.tar's, under one
+INDEX, and the weekly re-signing keeps them; refused, each naming why, a
+tar's package that does not match its stanza, a tar's INDEX signed by
+another key, a package boot.tar's repository has too, a file the tar's
+INDEX does not list, and a tar SHA256SUMS lists that was not downloaded.
 """
 import hashlib
 import io
@@ -46,7 +53,21 @@ def keypair(d, name):
     return k, p
 
 
-def make_release(d, tag, key):
+def ports_tar(arch, key, change=None):
+    """scripts/mkrelease.py's form: INDEX, then the packages, as pkgbuild.tar_archive writes them."""
+    cpk = f"{arch} nano".encode() * 40
+    name = "hello" if change == "dup" else "nano"
+    index = (f"name: {name}\nversion: 9.3\nsummary: a text editor\nfile: nano-9.3.cpk\n"
+             f"size: {len(cpk)}\nsha512: {hashlib.sha512(cpk).hexdigest()}\n").encode()
+    if change == "pkgsum":
+        cpk = cpk[:-1] + b"!"
+    members = [("INDEX", 0o644, pkgbuild.sign(index, key)), ("nano-9.3.cpk", 0o644, cpk)]
+    if change == "extra":
+        members.append(("stray.cpk", 0o644, b"stray"))
+    return pkgbuild.tar_archive(members)
+
+
+def make_release(d, tag, key, ports=False, ports_key=None, change=None):
     os.makedirs(d)
     names = []
     for arch, loader in (("x86_64", "BOOTX64.EFI"), ("aarch64", "BOOTAA64.EFI")):
@@ -62,6 +83,8 @@ def make_release(d, tag, key):
                 t.addfile(ti, io.BytesIO(data))
         files = {"boot.tar": buf.getvalue(), loader: b"loader", "kernel.elf": b"kernel", "cmdline": b"cmd",
                  "manifest": b"m", "cosmo-upgrade": b"u", "cosmo-upgrade.cpk": b"c", "img": b"image"}
+        if ports:
+            files["ports.tar"] = ports_tar(arch, ports_key or key, change)
         for f, data in files.items():
             n = f"cosmoos-{arch}.img" if f == "img" else f"cosmoos-{arch}-{f}"
             open(os.path.join(d, n), "wb").write(data)
@@ -72,6 +95,8 @@ def make_release(d, tag, key):
     open(os.path.join(d, "SHA256SUMS.sig"), "wb").write(modsign.detached(modsign.read_hex_key(key, "k"), sums))
     os.remove(os.path.join(d, "cosmoos-x86_64.img"))   # the images are not downloaded
     os.remove(os.path.join(d, "cosmoos-aarch64.img"))
+    if change == "notar":
+        os.remove(os.path.join(d, "cosmoos-aarch64-ports.tar"))
 
 
 def publish(site, out, key, pub, *extra, now=NOW):
@@ -177,6 +202,55 @@ def main():
             reason = {"sums": "SHA256SUMS.sig: bad signature", "file": "cosmoos-x86_64-cmdline does not match SHA256SUMS",
                       "missing": "was not downloaded",
                       "index": "repo/INDEX: unknown signing key"}[change]
+            check(r.returncode == 1 and reason in r.stderr, f"{what} refused ({reason}): {r.stderr.strip()}")
+
+        # The ports repository (R3): v1.1.0 carries cosmoos-ARCH-ports.tar.
+        make_release(os.path.join(w, "v1.1.0"), "v1.1.0", key, ports=True)
+        sp = os.path.join(w, "sports")
+        r = publish(site, sp, key, pub, "--release", os.path.join(w, "v1.1.0"), "--tag", "v1.1.0",
+                    "--published", "2026-11-20T00:00:00Z", "--latest")
+        check(r.returncode == 0 and "1 packages added to boot.tar's 1" in r.stdout,
+              f"a release with its ports: {r.stdout.strip()} {r.stderr.strip()}")
+        for arch in ("x86_64", "aarch64"):
+            d = os.path.join(sp, "repo", arch)
+            check(sorted(os.listdir(d)) == ["INDEX", "INDEX.90", "hello-1.1.cpk", "nano-9.3.cpk"],
+                  f"repo/{arch} holds {sorted(os.listdir(d))}")
+            if "nano-9.3.cpk" not in os.listdir(d):
+                continue
+            check(open(os.path.join(d, "nano-9.3.cpk"), "rb").read().startswith(f"{arch} nano".encode()),
+                  f"{arch}'s nano")
+            for n in ("INDEX", "INDEX.90"):
+                b = open(os.path.join(d, n), "rb").read()
+                check(modsign.verify_detached([pubbytes], b[:-88], b[-88:]) is None, f"repo/{arch}/{n}'s signature")
+                st = pkgbuild.index_stanzas(b)
+                check([pkgbuild.stanza_field(s, "name") for s in st] == ["hello", "nano"],
+                      f"repo/{arch}/{n} lists {[pkgbuild.stanza_field(s, 'name') for s in st]}")
+                nano = [s for s in st if pkgbuild.stanza_field(s, "name") == "nano"][0]
+                data = open(os.path.join(d, "nano-9.3.cpk"), "rb").read()
+                check(pkgbuild.stanza_field(nano, "sha512") == hashlib.sha512(data).hexdigest(),
+                      f"repo/{arch}/{n}: nano's digest")
+        check(not any("ports" in n for n in os.listdir(os.path.join(sp, "releases", "v1.1.0"))),
+              "releases/v1.1.0 holds no ports tar")
+        sw = os.path.join(w, "sweekly")
+        r = publish(sp, sw, key, pub, now=NOW + 40 * 86400)
+        check(r.returncode == 0 and os.path.exists(os.path.join(sw, "repo", "aarch64", "nano-9.3.cpk")) and
+              [pkgbuild.stanza_field(s, "name") for s in pkgbuild.index_stanzas(
+                  open(os.path.join(sw, "repo", "aarch64", "INDEX.90"), "rb").read())] == ["hello", "nano"],
+              f"the weekly re-signing keeps the ports: {r.stderr.strip()}")
+
+        for what, change, reason in (
+                ("a ports package that does not match its stanza", "pkgsum", "nano-9.3.cpk does not match its INDEX stanza"),
+                ("a ports INDEX signed by another key", "pkgkey", "ports.tar: INDEX: unknown signing key"),
+                ("a ports package boot.tar's repository has", "dup", "hello is in boot.tar's repository too"),
+                ("a file the ports INDEX does not list", "extra", "stray.cpk not in its INDEX"),
+                ("a ports tar not downloaded", "notar", "cosmoos-aarch64-ports.tar was not downloaded")):
+            shutil.rmtree(bad, ignore_errors=True)
+            make_release(bad, "v2.0.0", key, ports=True, ports_key=okey if change == "pkgkey" else None,
+                         change=change)
+            out = os.path.join(w, "sbad")
+            shutil.rmtree(out, ignore_errors=True)
+            r = publish(sp, out, key, pub, "--release", bad, "--tag", "v2.0.0",
+                        "--published", "2026-11-21T00:00:00Z", "--latest")
             check(r.returncode == 1 and reason in r.stderr, f"{what} refused ({reason}): {r.stderr.strip()}")
     finally:
         shutil.rmtree(w, ignore_errors=True)

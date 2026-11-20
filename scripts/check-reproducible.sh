@@ -29,16 +29,19 @@ chmod +x "$noceesafec/ceesafec"
 
 # BusyBox, dropbear and OpenSSH's sftp-server too, in each tree (BB_DIR,
 # DB_DIR, OSSH_DIR, MBEDTLS_DIR: by default one per architecture, shared by both trees,
-# which would hide a build-path leak).
+# which would hide a build-path leak), and the ports repository's (R3: zlib,
+# ncurses, nano, curl, git, OpenSSH's packages), which the set carries as
+# cosmoos-ARCH-ports.tar.
 for t in "$a" "$b"; do
     if [ "$t" = "$a" ]; then tree=$root; ceesafec=${CEESAFEC:-}; path=$PATH; else tree=$src; ceesafec=$noceesafec/ceesafec; path=$noceesafec:$PATH; fi
     PATH=$path CEESAFEC=$ceesafec ${MAKE:-make} -C "$tree" ARCH="$arch" BUILD="$build" OUT="$t" BB_DIR="$t/busybox" DB_DIR="$t/dropbear" OSSH_DIR="$t/openssh" MBEDTLS_DIR="$t/mbedtls" TCC_DIR="$t/tcc" \
+        ZLIB_DIR="$t/zlib" NC_DIR="$t/ncurses" NANO_DIR="$t/nano" CURL_DIR="$t/curl" GIT_DIR_="$t/git" OSSH_PKG_DIR="$t/openssh-pkg" \
         PORTS_CACHE="$root/.cache/ports" RELEASE_DIR="$t/release" all image release-set >/dev/null
 done
 
 status=0
 case "$arch" in aarch64) loader=boot/BOOTAA64.EFI ;; *) loader=boot/BOOTX64.EFI ;; esac
-for f in kernel/kernel.elf $loader boot.tar modules/hello.ko modules/cosmotest.ko modules/cosmotest_dep.ko modules/cosmotest_fail.ko userland/init.elf userland/sh.elf userland/ls.elf userland/pkg.elf busybox/busybox busybox/testsuite.tgz dropbear/scp openssh/sftp-server mbedtls/ssl_client mbedtls/cosmo-fetch tcc/tcc tcc/libtcc1.a tcc/runmain.o libc/libc.a pkg/repo/INDEX pkg/repo/hello-1.1.cpk pkg/repo/fortune-1.0.cpk cmdline manifest cosmoos.img release/SHA256SUMS; do
+for f in kernel/kernel.elf $loader boot.tar modules/hello.ko modules/cosmotest.ko modules/cosmotest_dep.ko modules/cosmotest_fail.ko userland/init.elf userland/sh.elf userland/ls.elf userland/pkg.elf busybox/busybox busybox/testsuite.tgz dropbear/scp openssh/sftp-server mbedtls/ssl_client mbedtls/cosmo-fetch tcc/tcc tcc/libtcc1.a tcc/runmain.o libc/libc.a pkg/repo/INDEX pkg/repo/hello-1.1.cpk pkg/repo/fortune-1.0.cpk pkg/server/INDEX cmdline manifest cosmoos.img release/SHA256SUMS; do
     if cmp -s "$a/$f" "$b/$f"; then
         printf '  same     %s\n' "$f"
     else

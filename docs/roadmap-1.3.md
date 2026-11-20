@@ -163,7 +163,7 @@ OpenSSH, curl, git and nano, cross-built on the host as BusyBox and
 dropbear are, published in the package repository. This is not 1.2's A
 track: nothing here is built on the target.
 
-- [ ] **Acceptance:** `make test-ports` installs each with `pkg install`
+- [x] **Acceptance:** `make test-ports` installs each with `pkg install`
   on an installed system and runs it: `sshd` accepts a key login and
   `scp` copies a file both ways, `curl` fetches over HTTPS, `git` clones
   over HTTPS and commits, `nano` edits a file under the harness's

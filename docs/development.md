@@ -561,7 +561,9 @@ host dimension.
 installed system runs to move to it; shell completeness S7),
 `cosmoos-<arch>-cosmo-upgrade.cpk` (a package of `cosmo-upgrade` and
 `cosmo-verify` signed with `PKGSIGN_KEY`, which v1.0.3's `pkg install -n`
-checks; version from the build id), `SHA256SUMS` (`sha256sum -c` format)
+checks; version from the build id), `cosmoos-<arch>-ports.tar` (the
+ports repository, `make server-ports`: OpenSSH, curl, git and nano, its
+`INDEX` and packages; docs/pkg/design.md, "Cross-built ports"), `SHA256SUMS` (`sha256sum -c` format)
 and `SHA256SUMS.sig` (its detached signature with `MODSIGN_KEY`: the
 `COSMOSIG` trailer alone, `scripts/modsign.py sign-detached`). It is signed with whatever `SIGNING` selects:
 the developer key by default; the release workflow passes
@@ -639,7 +641,10 @@ requires the two `SHA256SUMS` to be equal before it publishes.
    checks `SHA256SUMS.sig` against `tools/keys/*.pub` and every file
    against `SHA256SUMS`, takes each architecture's package repository
    from the `repo/` of its `boot.tar` (its `INDEX` signed by the release
-   key), makes that a network index twice (`pkgbuild.py publish`: the
+   key), adds the packages of its `cosmoos-ARCH-ports.tar` when
+   `SHA256SUMS` lists one (that `INDEX` signed by the release key too,
+   each package the size and SHA-512 its stanza gives, no name `boot.tar`'s
+   repository has), makes that a network index twice (`pkgbuild.py publish`: the
    serial after the published one; `INDEX.90` with a 90-day expiry, which
    `pkg` reads from v1.0.7, and `INDEX` with a 30-day one for the systems
    before it, whose `pkg` refuses a longer validity), each signed with

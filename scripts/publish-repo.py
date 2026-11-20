@@ -26,8 +26,13 @@ site, written from scratch. The site:
 With --release, DIR holds the GitHub release TAG's assets: SHA256SUMS is
 checked against its signature and PUB, every file used against SHA256SUMS,
 and each architecture's repository is taken from the repo/ of its
-boot.tar (an INDEX signed by PUB's key); --latest also points LATEST at
-it. A --release older than the site's LATEST adds its releases/TAG alone:
+boot.tar (an INDEX signed by PUB's key). A release whose SHA256SUMS lists
+cosmoos-ARCH-ports.tar (roadmap 1.3 R3: OpenSSH, curl, git, nano;
+docs/pkg/design.md, "Cross-built ports") adds its packages beside those:
+the tar's INDEX signed by PUB's key, each package the size and SHA-512 its
+stanza gives, no name the boot.tar's repository has, nothing in the tar the
+INDEX does not list; the two indexes become one. --latest also points
+LATEST at it. A --release older than the site's LATEST adds its releases/TAG alone:
 the repository is the newer release's, signed again, and LATEST stays.
 Without --release, every INDEX on the site is signed again with a new
 expiry (the weekly job). Either way each INDEX's serial is the site's one
@@ -52,6 +57,7 @@ import pkgbuild  # noqa: E402
 ARCHES = ("x86_64", "aarch64")
 INDEXES = {"INDEX.90": pkgbuild.MAX_DAYS, "INDEX": pkgbuild.OLD_DAYS}   # name: validity in days
 SET = ("kernel.elf", "boot.tar", "cmdline", "manifest", "cosmo-upgrade", "cosmo-upgrade.cpk")
+PORTS = "ports.tar"   # the ports repository (scripts/mkrelease.py), not in releases/TAG
 LOADERS = {"x86_64": "BOOTX64.EFI", "aarch64": "BOOTAA64.EFI"}
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
 
@@ -80,7 +86,8 @@ def check_release(rel, pub):
         digest, _, name = line.partition("  ")
         want[name] = digest
     for arch in ARCHES:
-        for n in [f"cosmoos-{arch}-{f}" for f in SET + (LOADERS[arch],)]:
+        ports = [f"cosmoos-{arch}-{PORTS}"] if f"cosmoos-{arch}-{PORTS}" in want else []   # from R3's releases on
+        for n in [f"cosmoos-{arch}-{f}" for f in SET + (LOADERS[arch],)] + ports:
             p = os.path.join(rel, n)
             if n not in want:
                 raise Fail(f"{n} is not in SHA256SUMS")
@@ -101,13 +108,59 @@ def repo_from_archive(archive, pub):
                 files[m.name[5:]] = t.extractfile(m).read()
     if "INDEX" not in files:
         raise Fail(f"{archive} has no repo/INDEX")
-    # The trailer is a detached signature's form at the end of the file.
-    blob = files["INDEX"]
+    verify_index(files["INDEX"], pub, f"{archive}: repo/INDEX")   # a detached signature's trailer at the end
+    return files
+
+
+def verify_index(blob, pub, what):
+    if len(blob) < modsign.TRAILER.size:
+        raise Fail(f"{what}: not signed")
     why = modsign.verify_detached([modsign.read_hex_key(pub, "public key")], blob[:-modsign.TRAILER.size],
                                   blob[-modsign.TRAILER.size:])
     if why:
-        raise Fail(f"{archive}: repo/INDEX: {why}")
-    return files
+        raise Fail(f"{what}: {why}")
+
+
+def merge_ports(files, tar, pub, key):
+    """FILES (repo_from_archive's) with the ports tar's packages added and
+    one INDEX of both, signed with KEY."""
+    ports = {}
+    with tarfile.open(tar) as t:
+        for m in t.getmembers():
+            if not m.isfile() or "/" in m.name:
+                raise Fail(f"{tar}: {m.name} is not a file at the top")
+            ports[m.name] = t.extractfile(m).read()
+    if "INDEX" not in ports:
+        raise Fail(f"{tar} has no INDEX")
+    verify_index(ports["INDEX"], pub, f"{tar}: INDEX")
+    base = pkgbuild.index_stanzas(files["INDEX"])
+    names = {pkgbuild.stanza_field(st, "name") for st in base}
+    added = pkgbuild.index_stanzas(ports["INDEX"])
+    listed = set()
+    for st in added:
+        name, fn = pkgbuild.stanza_field(st, "name"), pkgbuild.stanza_field(st, "file")
+        if name in names:
+            raise Fail(f"{tar}: {name} is in boot.tar's repository too")
+        if fn not in ports or fn == "INDEX":
+            raise Fail(f"{tar}: INDEX names {fn}, which the tar lacks")
+        data = ports[fn]
+        if (str(len(data)) != pkgbuild.stanza_field(st, "size") or
+                hashlib.sha512(data).hexdigest() != pkgbuild.stanza_field(st, "sha512")):
+            raise Fail(f"{tar}: {fn} does not match its INDEX stanza")
+        if fn in files:
+            raise Fail(f"{tar}: {fn} is in boot.tar's repository too")
+        listed.add(fn)
+    extra = set(ports) - listed - {"INDEX"}
+    if extra:
+        raise Fail(f"{tar}: {', '.join(sorted(extra))} not in its INDEX")
+    merged = dict(files)
+    for fn in listed:
+        merged[fn] = ports[fn]
+    stanzas = sorted(base + added, key=lambda st: (pkgbuild.stanza_field(st, "name"),
+                                                   pkgbuild.stanza_field(st, "version")))
+    merged["INDEX"] = pkgbuild.sign("\n".join(stanzas).encode("ascii"), key)
+    print(f"publish-repo: {os.path.basename(tar)}: {len(added)} packages added to boot.tar's {len(base)}")
+    return merged
 
 
 def site_serial(site, arch):
@@ -131,8 +184,9 @@ def main():
     now = a.now if a.now is not None else int(time.time())
     if a.release and (not a.tag or not tag_key(a.tag) or not a.published):
         raise Fail("--release needs --tag vX.Y.Z[-rcN] and --published")
+    want = {}
     if a.release:
-        check_release(a.release, a.pub)   # before anything is written
+        want = check_release(a.release, a.pub)   # before anything is written
     if os.path.exists(a.out):
         shutil.rmtree(a.out)
     os.makedirs(a.out)
@@ -158,6 +212,8 @@ def main():
         os.makedirs(dest)
         if a.release and not older:
             files = repo_from_archive(os.path.join(a.release, f"cosmoos-{arch}-boot.tar"), a.pub)
+            if f"cosmoos-{arch}-{PORTS}" in want:
+                files = merge_ports(files, os.path.join(a.release, f"cosmoos-{arch}-{PORTS}"), a.pub, a.key)
         else:
             src = os.path.join(a.site, "repo", arch)
             if not os.path.isdir(src):

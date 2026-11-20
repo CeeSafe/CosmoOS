@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""mkrelease.py ARCH DEST IMAGE QCOW2 VMDK ISO LOADER KERNEL ARCHIVE MANIFEST CMDLINE UPGRADE VERIFY FETCH KEY PKGKEY
-               BUILD_ID
+"""mkrelease.py ARCH DEST IMAGE QCOW2 VMDK ISO LOADER KERNEL ARCHIVE MANIFEST CMDLINE UPGRADE VERIFY FETCH PORTS KEY
+               PKGKEY BUILD_ID
 
 Collect one architecture's release set (roadmap M6; docs/development.md,
 "Releases") into DEST under the names the GitHub release carries. DEST is
@@ -30,6 +30,12 @@ RELEASE_DIR deletes nothing:
                                which a v1.0.3 system's `pkg install -n`
                                checks against the key it shipped with
                                (docs/guide/upgrading.md)
+    cosmoos-ARCH-ports.tar     the ports repository (PORTS, `make
+                               server-ports`: OpenSSH, curl, git, nano;
+                               docs/pkg/design.md, "Cross-built ports"),
+                               its INDEX and packages as a tar, which
+                               scripts/publish-repo.py adds to the
+                               published repository
     SHA256SUMS                 `sha256sum -c` format, the files above
     SHA256SUMS.sig             its detached signature with KEY: the
                                COSMOSIG trailer of scripts/modsign.py on its
@@ -65,11 +71,29 @@ def package_version(build_id):
     return m.group(1) + (f"-{m.group(3)}" if m.group(3) else "")
 
 
+def ports_tar(repo):
+    """The ports repository as a tar: INDEX, then each .cpk by name, every
+    member 0644 with no owner and no time (pkgbuild.tar_archive), so two
+    builds of one tree make it byte for byte. Only a signed INDEX and the
+    packages it names go in."""
+    names = sorted(os.listdir(repo))
+    with open(os.path.join(repo, "INDEX"), "rb") as f:
+        index = f.read()
+    listed = sorted(pkgbuild.stanza_field(st, "file") for st in pkgbuild.index_stanzas(index))
+    if listed != sorted(n for n in names if n.endswith(".cpk")):
+        sys.exit(f"mkrelease: {repo}: INDEX lists {listed}, the directory holds {names}")
+    members = [("INDEX", 0o644, index)]
+    for n in listed:
+        with open(os.path.join(repo, n), "rb") as f:
+            members.append((n, 0o644, f.read()))
+    return pkgbuild.tar_archive(members)
+
+
 def main():
-    if len(sys.argv) != 18:
+    if len(sys.argv) != 19:
         sys.exit(__doc__)
-    (arch, dest, image, qcow2, vmdk, iso, loader, kernel, archive, manifest, cmdline, upgrade, verify, fetch, key,
-     pkgkey, build_id) = sys.argv[1:]
+    (arch, dest, image, qcow2, vmdk, iso, loader, kernel, archive, manifest, cmdline, upgrade, verify, fetch, ports,
+     key, pkgkey, build_id) = sys.argv[1:]
     os.makedirs(dest, exist_ok=True)
     stray = [f for f in os.listdir(dest) if not (f.startswith("cosmoos-") or f in ("SHA256SUMS", "SHA256SUMS.sig"))]
     if stray:
@@ -97,10 +121,13 @@ def main():
     with open(cpk, "wb") as f:
         f.write(pkgbuild.pack("cosmo-upgrade", package_version(build_id),
                               "cosmo-upgrade, cosmo-verify and cosmo-fetch of this release", tools, pkgkey))
+    tar = os.path.join(dest, f"cosmoos-{arch}-ports.tar")
+    with open(tar, "wb") as f:
+        f.write(ports_tar(ports))
     sums = []
     for src, name in files:
         shutil.copyfile(src, os.path.join(dest, name))
-    for _, name in files + [(cpk, os.path.basename(cpk))]:
+    for _, name in files + [(cpk, os.path.basename(cpk)), (tar, os.path.basename(tar))]:
         with open(os.path.join(dest, name), "rb") as f:
             sums.append(f"{hashlib.sha256(f.read()).hexdigest()}  {name}\n")
     text = "".join(sums).encode()
