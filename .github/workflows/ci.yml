@@ -212,8 +212,12 @@ jobs:
     # most 54.2, and PR #401's was cancelled at 55.1 in its last step with
     # every boot passed (run 39061354017). A hang guard; each boot keeps its
     # own timeout. 70 was the limit of the one job until 2026-10-24, when it
-    # was split in three; the longest part is about 25 minutes.
-    timeout-minutes: 45
+    # was split in three; the longest part is about 25 minutes. 45 until
+    # 2026-11-20 (R3): the reproducible check builds the ports repository in
+    # each tree (the release set carries it), and the build part went from
+    # 1579 s (x86-64) and 1587 s (AArch64) on main (run 44655419063) to 2399 s
+    # and past 2700 s, cancelled in that check (run 44677881609).
+    timeout-minutes: 60
     env:
       # SIGNING=dev generates an ephemeral signing key here on first use; it
       # lives only in this job's filesystem and is never uploaded (the

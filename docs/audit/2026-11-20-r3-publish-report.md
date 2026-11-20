@@ -41,6 +41,13 @@ them. The base is main at `26334c83` (#536's merge), whose CI passed
   - Its limit is 60 minutes, up from 40, from the times below.
   - Its cache key is the ports test's, every `ports/*/*.mk`, so the new
     archives are cached.
+- **`.github/workflows/ci.yml`**, the "build, boot, analyze" job: its
+  limit is 60 minutes, up from 45. Its debug `make reproducible` builds the
+  ports in each tree too. The build part took 1579 s (x86-64) and 1587 s
+  (AArch64) on main (run 44655419063). On this branch it took 2399 s, and
+  ran past 2700 s, cancelled in that check (run 44677881609). The ports do
+  not depend on BUILD, but sharing one build between the two trees saves
+  nothing: their rules depend on each tree's BusyBox libc and mbedTLS.
 - **Documents.** `docs/development.md` (the set, the repository's step 6)
   and `docs/guide/packages.md` (`pkg install openssh-server` from a
   release after v1.1.1).
@@ -102,7 +109,10 @@ is the backend git's file-system monitor is built without.
 R3's acceptance, `make test-ports`, passes on main (run 44655419063,
 "ports test", both architectures), and R3 is ticked.
 
-Branch CI: CI
+Branch CI:
+- `574e94a8` (run 44677881609): "build, boot, analyze (aarch64, build)"
+  was cancelled at its 45-minute limit in the reproducible check, above;
+  every other job passed. The release-set jobs took 1426 s and 1490 s.
 
 ## Limits
 
