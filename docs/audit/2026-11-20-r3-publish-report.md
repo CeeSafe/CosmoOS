@@ -81,7 +81,18 @@ On CI on main (run 44655419063) the same two steps took 673 s and
 - release.yml's build jobs make one set each: 261-335 s for v1.1.1, plus
   one ports build, inside their 40 minutes.
 
-MATRIX
+`make matrix` on `5c53f811`, on the other machine, in the CI image with
+the pinned ceesafec 0.57.1, one architecture after the other. The second
+commit changes only `ci.yml` and documents.
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 227.1 / 240.6 / 245.1 s | 277.6 / 284.8 / 303.7 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 236.1 / 241.2 / 244.9 s | 284.9 / 307.7 / 304.4 s |
+| release `test` | 18.7 s | 23.3 s |
 
 Each Linux call a port needed and CosmoOS lacked: none. Step z of
 `make test-ports` found no unimplemented call from a port in #535 and
