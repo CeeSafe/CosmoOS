@@ -1,0 +1,6 @@
+# The ssh server in dropbear's place: OpenSSH's sshd, the openssh-server
+# package's (ports/openssh/README.md, "The packages"). After dropbear, so at
+# boot dropbear starts and this then takes port 22 from it.
+exec /bin/sh /etc/ssh/start
+after dropbear
+restart on-failure

@@ -1,0 +1,29 @@
+#!/bin/sh
+# /etc/ssh/start - the sshd service (/etc/svc/sshd), the openssh-server
+# package's (ports/openssh/README.md, "The packages"; docs/pkg/design.md,
+# "Cross-built ports"): OpenSSH's sshd on port 22 in dropbear's place.
+#
+# pkg runs no scripts, so what an install would otherwise do is done here,
+# at the service's start, once:
+# - the privilege separation user and its empty directory (sshd refuses to
+#   start without them);
+# - the Ed25519 host key, made once and kept, as dropbear's start script
+#   makes its own (ssh-keygen draws from getrandom, which blocks until the
+#   kernel's pool is seeded).
+# Then dropbear is stopped, and sshd takes port 22 in the foreground under
+# svc's supervision, logging to stderr (-e), which svc keeps in
+# /var/log/svc/sshd.
+grep -q '^sshd:' /etc/group || echo 'sshd:x:74:' >> /etc/group || exit 1
+grep -q '^sshd:' /etc/passwd || echo 'sshd:x:74:74:sshd privilege separation:/var/empty:/bin/false' \
+    >> /etc/passwd || exit 1
+mkdir -p /var/empty && chmod 0755 /var/empty || exit 1
+key=/etc/ssh/ssh_host_ed25519_key
+if [ ! -s "$key" ]; then
+    rm -f "$key" "$key.pub"
+    /usr/bin/ssh-keygen -q -t ed25519 -N '' -f "$key" || exit 1
+    sync
+fi
+# dropbear's service may not be running (stopped by hand, or not installed);
+# either way it does not hold port 22 once this returns.
+svc stop dropbear >/dev/null 2>&1
+exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config

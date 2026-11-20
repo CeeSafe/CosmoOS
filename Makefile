@@ -70,11 +70,12 @@ include $(ROOT)/libc/libc.mk
 # BusyBox before userland: its applet list decides which native programs
 # move aside to cosmo-<name> (userland/userland.mk).
 include $(ROOT)/ports/busybox/busybox.mk
+# zlib first: the OpenSSH packages' rule names its library.
+include $(ROOT)/ports/zlib/zlib.mk
 include $(ROOT)/ports/dropbear/dropbear.mk
 include $(ROOT)/ports/openssh/openssh.mk
 include $(ROOT)/ports/mbedtls/mbedtls.mk
 include $(ROOT)/ports/tcc/tcc.mk
-include $(ROOT)/ports/zlib/zlib.mk
 include $(ROOT)/ports/ncurses/ncurses.mk
 include $(ROOT)/ports/nano/nano.mk
 include $(ROOT)/ports/curl/curl.mk

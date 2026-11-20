@@ -50,3 +50,56 @@ sftp-server: $(SFTP_SERVER_ELF)
 # /usr/libexec/sftp-server, where dropbear looks for it.
 OPENSSH_ARCHIVE_ENTRIES := usr/libexec/sftp-server=$(SFTP_SERVER_ELF)
 OPENSSH_ARCHIVE_DEPS := $(SFTP_SERVER_ELF)
+
+# ---- The openssh-client and openssh-server packages (roadmap 1.3 R3;
+# ports/openssh/README.md, "The packages"; docs/pkg/design.md, "Cross-built
+# ports") ----
+#
+# A second build of the same source in a directory of its own, so the base
+# system's sftp-server above is unchanged. zlib (ports/zlib/) for
+# compression; OpenSSH's own crypto, still without OpenSSL (Ed25519,
+# ChaCha20-Poly1305, AES-CTR and GCM, the Curve25519 and ML-KEM key
+# exchanges). The privilege separation user is `sshd`, its directory
+# /var/empty (ports/openssh/start makes both). Installed into a stage the
+# two package files read.
+OSSH_PKG_DIR   ?= $(dir $(OUT))openssh-pkg-$(ARCH)
+OSSH_STAGE     := $(OSSH_PKG_DIR)/stage
+OSSH_SSH_ELF   := $(OSSH_STAGE)/usr/bin/ssh
+OSSH_CLIENTS   := ssh scp sftp ssh-keygen ssh-keyscan ssh-agent ssh-add
+OSSH_SERVERS   := sshd sshd-session sshd-auth
+
+$(OSSH_SSH_ELF): $(OPENSSH_TAR) $(ZLIB_A) $(BB_LIBC) $(BB_BUILTINS) $(BB_CC) $(ROOT)/ports/openssh/openssh.mk \
+		$(ROOT)/ports/openssh/sshd_config $(ROOT)/ports/openssh/start $(ROOT)/ports/openssh/sshd.svc
+	$(call log,OPENSSH,$(OPENSSH_VERSION) $(BB_TARGET) clients and sshd)
+	$(Q)rm -rf $(OSSH_PKG_DIR)/src $(OSSH_STAGE)
+	$(Q)mkdir -p $(OSSH_PKG_DIR)/src
+	$(Q)tar -xzf $(OPENSSH_TAR) -C $(OSSH_PKG_DIR)/src --strip-components=1
+	$(Q)cd $(OSSH_PKG_DIR)/src && ./configure --host=$(BB_TARGET) \
+		CC=$(BB_CC) AR="$(AR)" RANLIB="$(AR) s" CFLAGS="-O2 -ffile-prefix-map=$(OSSH_PKG_DIR)=openssh" \
+		--prefix=/usr --sysconfdir=/etc/ssh --libexecdir=/usr/libexec --with-privsep-path=/var/empty \
+		--with-privsep-user=sshd --with-zlib=$(ZLIB_PREFIX) --without-openssl --without-pam --without-pie \
+		--without-hardening --without-stackprotect --disable-lastlog --disable-utmp --disable-utmpx \
+		--disable-wtmp --disable-wtmpx --disable-libutil --disable-pututline --disable-pututxline \
+		--with-default-path=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+		--with-superuser-path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+		> $(OSSH_PKG_DIR)/configure.log 2>&1 || { tail -40 $(OSSH_PKG_DIR)/configure.log; exit 1; }
+	$(Q)$(MAKE) -s -C $(OSSH_PKG_DIR)/src $(OSSH_CLIENTS) $(OSSH_SERVERS) > $(OSSH_PKG_DIR)/build.log 2>&1 \
+		|| { tail -40 $(OSSH_PKG_DIR)/build.log; exit 1; }
+	$(Q)mkdir -p $(OSSH_STAGE)/usr/bin $(OSSH_STAGE)/usr/sbin $(OSSH_STAGE)/usr/libexec $(OSSH_STAGE)/etc/ssh \
+		$(OSSH_STAGE)/etc/svc
+	$(Q)for p in $(OSSH_CLIENTS); do $(OBJCOPY) --strip-all --remove-section=.note --remove-section=.comment \
+		$(OSSH_PKG_DIR)/src/$$p $(OSSH_STAGE)/usr/bin/$$p || exit 1; done
+	$(Q)$(OBJCOPY) --strip-all --remove-section=.note --remove-section=.comment $(OSSH_PKG_DIR)/src/sshd \
+		$(OSSH_STAGE)/usr/sbin/sshd
+	$(Q)for p in sshd-session sshd-auth; do $(OBJCOPY) --strip-all --remove-section=.note --remove-section=.comment \
+		$(OSSH_PKG_DIR)/src/$$p $(OSSH_STAGE)/usr/libexec/$$p || exit 1; done
+	$(Q)cp $(ROOT)/ports/openssh/sshd_config $(OSSH_STAGE)/etc/ssh/sshd_config
+	$(Q)cp $(ROOT)/ports/openssh/start $(OSSH_STAGE)/etc/ssh/start
+	$(Q)cp $(ROOT)/ports/openssh/sshd.svc $(OSSH_STAGE)/etc/svc/sshd
+
+.PHONY: openssh-pkg
+openssh-pkg: $(OSSH_SSH_ELF)
+
+# The packages (pkg/pkg.mk's server-ports): their files and the stage they read.
+SERVER_PACKAGES     += $(ROOT)/ports/openssh/package-client=$(OSSH_STAGE) $(ROOT)/ports/openssh/package-server=$(OSSH_STAGE)
+SERVER_PACKAGE_DEPS += $(OSSH_SSH_ELF) $(ROOT)/ports/openssh/package-client $(ROOT)/ports/openssh/package-server

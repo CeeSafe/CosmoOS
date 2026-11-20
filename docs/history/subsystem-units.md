@@ -3932,3 +3932,16 @@ See the [history index](README.md).
     names the process). Backlog LX-26, LX-27 (the base system's `sendfile`
     and `execveat`), LX-28 (no inotify).
   - Report: `docs/audit/2026-11-19-r3-ports-report.md`.
+- **R3, second PR: OpenSSH's clients and sshd as packages (2026-11-19, roadmap 1.3).**
+  - `openssh-client` (ssh, scp, sftp, ssh-keygen, ssh-keyscan, ssh-agent,
+    ssh-add) and `openssh-server` (sshd, sshd-session, sshd-auth; depends on
+    the client), from a second build of the pinned OpenSSH 10.6p1 with zlib
+    and without OpenSSL; the base system's `sftp-server` is unchanged.
+  - `/etc/svc/sshd` runs `/etc/ssh/start`: the `sshd` user, `/var/empty` and
+    the Ed25519 host key once, then `svc stop dropbear` and sshd on port 22.
+  - `make test-ports` step s: dropbear's banner, then OpenSSH's after `svc
+    start sshd`; a key login and scp both ways from the host, a forward
+    refused; the target's own ssh-keygen. Backlog NET-25 (ssh and scp over
+    the target's loopback do not end), USR-12
+    (a bare `scp` is dropbear's).
+  - Report: `docs/audit/2026-11-19-r3-openssh-report.md`.

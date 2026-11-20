@@ -1,0 +1,25 @@
+# /etc/ssh/sshd_config, the openssh-server package's (ports/openssh/README.md,
+# "The packages"). The package owns this file and an upgrade replaces it.
+#
+# What dropbear allowed on this system (ports/dropbear/README.md), no more:
+# keys only, root by key, no forwarding of any kind (ports/dropbear/
+# localoptions.h), the sftp subsystem the base system's sftp-server.
+
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthorizedKeysFile .ssh/authorized_keys
+
+# TCP, stream-local, agent and X11 forwarding, and tunnels: none.
+DisableForwarding yes
+PermitTunnel no
+
+# No login records on this system (no utmp, wtmp or lastlog).
+PrintLastLog no
+UseDNS no
+
+Subsystem sftp /usr/libexec/sftp-server
