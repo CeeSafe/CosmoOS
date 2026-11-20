@@ -210,7 +210,8 @@ $(ISO_IMAGE): $(ISO_DISK) $(ROOT)/scripts/mkiso.py
 
 # Roadmap M6 (docs/development.md, "Releases"): one architecture's release
 # set -- the signed live image, the loader, kernel.elf, boot.tar, the
-# command line, the manifest, cosmo-upgrade (S7), the signed package of
+# command line, the manifest, cosmo-upgrade (S7), the ports repository as a
+# tar (R3: cosmoos-ARCH-ports.tar), the signed package of
 # cosmo-upgrade and cosmo-verify, SHA256SUMS and its signature -- made by
 # scripts/mkrelease.py in RELEASE_DIR under the names the GitHub release carries.
 # Always a release build: `make release` runs release-set with
@@ -224,11 +225,11 @@ release:
 UPGRADE_ELF = $(call prog_elf,cosmo-upgrade)
 VERIFY_ELF = $(call prog_elf,cosmo-verify)
 release-set: $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) $(BOOT_ARCHIVE) $(CMDLINE_FILE) $(MANIFEST) $(UPGRADE_ELF) $(VERIFY_ELF) \
-		$(COSMO_FETCH_ELF) \
+		$(COSMO_FETCH_ELF) $(SERVER_INDEX) \
 		$(ROOT)/scripts/mkrelease.py $(ROOT)/tools/pkgbuild.py $(ROOT)/scripts/modsign.py
 	$(call log,RELEASE,$(RELEASE_DIR))
 	$(Q)$(PYTHON) $(ROOT)/scripts/mkrelease.py $(ARCH) $(RELEASE_DIR) $(IMAGE) $(QCOW2_IMAGE) $(VMDK_IMAGE) $(ISO_IMAGE) $(LOADER_EFI) $(KERNEL_SHIP_ELF) \
-		$(BOOT_ARCHIVE) $(MANIFEST) $(CMDLINE_FILE) $(UPGRADE_ELF) $(VERIFY_ELF) $(COSMO_FETCH_ELF) $(MODSIGN_KEY) $(PKGSIGN_KEY) \
+		$(BOOT_ARCHIVE) $(MANIFEST) $(CMDLINE_FILE) $(UPGRADE_ELF) $(VERIFY_ELF) $(COSMO_FETCH_ELF) $(SERVER_REPO) $(MODSIGN_KEY) $(PKGSIGN_KEY) \
 		$(BUILD_ID)
 
 run: $(IMAGE)
