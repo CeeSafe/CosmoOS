@@ -73,8 +73,9 @@ still that one. Run as a client, it fails for want of dropbear's
 
 `ssh` and `sshd` print `setsockopt socket N IP_TOS ...: Protocol not
 available` (and `scp`'s `ssh`, `SO_KEEPALIVE`) and carry on: the Linux
-personality refuses every socket option (backlog LX-8). `scp` between
-two ends on the same system, over loopback, stalls (backlog NET-25).
+personality refuses every socket option (backlog LX-8). `ssh` or `scp`
+between two ends on the same system, over loopback, may not end after
+the command or the copy (backlog NET-25).
 
 **`openssh-server`** depends on `openssh-client` of the same version, for
 `ssh-keygen`. It holds:

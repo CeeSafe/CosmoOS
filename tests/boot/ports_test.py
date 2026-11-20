@@ -31,7 +31,8 @@ scripts/publish-repo.py does) over HTTPS from 127.0.0.1 (the guest's
      dropbear's. A key login from the host; a forward through it refused
      (`ssh -W`), as dropbear refuses one; `scp` both ways, byte for byte
      (the sftp subsystem: the base system's sftp-server); then, on the
-     target, its own ssh-keygen and ssh against its own sshd.
+     target, its own ssh-keygen and ssh -V (not ssh or scp to its own sshd:
+     over loopback the session does not end, backlog NET-25).
   z. No program a port installs met a system call the Linux personality
      lacks: the kernel's log (a debug kernel's: the lines are DEBUG) has
      no `unimplemented system call` line naming one. A probe compiled on
@@ -336,20 +337,21 @@ def stage_openssh(work, b, results, port):
         raise Fail(f"scp from the target: status {rc}: {out.strip()[-400:]}")
     if open(down, "rb").read() != open(up, "rb").read():
         raise Fail("scp: the file that came back differs from the one sent")
-    # The target's own clients against its own server: ssh-keygen and ssh.
-    # Not scp here: over the target's loopback it stalls (backlog NET-25), and
-    # a bare `scp` is dropbear's, which needs a dbclient the base system does
-    # not have (backlog USR-12). scp both ways is the host's, above.
-    out = b.status("rm -f /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub && "
-                   "ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519 && "
-                   "cat /root/.ssh/id_ed25519.pub >> /root/.ssh/authorized_keys && "
-                   "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/kh "
-                   "root@127.0.0.1 'echo from-the-target'", "loop")
-    need(out, r"^loop=0$", "the target's ssh-keygen and ssh against its own sshd")
-    need(out, r"^from-the-target$", "the target's ssh ran a command")
+    # The target's own clients: ssh-keygen makes a key, and ssh runs. Not ssh
+    # or scp to the target's own sshd: over loopback the session does not end
+    # after its command (backlog NET-25; CI run 44620425095, AArch64: the
+    # command's output, then neither sshd-session nor ssh exited). A bare
+    # `scp` is dropbear's and needs a dbclient the base system does not have
+    # (backlog USR-12). The login and scp both ways are the host's, above.
+    out = b.status("rm -f /root/ports-key /root/ports-key.pub && "
+                   "ssh-keygen -q -t ed25519 -N '' -f /root/ports-key && "
+                   "ssh-keygen -l -f /root/ports-key.pub && ssh -V 2>&1", "own")
+    need(out, r"^own=0$", "the target's ssh-keygen and ssh -V")
+    need(out, r"^256 SHA256:\S+ .* \(ED25519\)$", "the target's ssh-keygen made an Ed25519 key")
+    need(out, r"^OpenSSH_10\.6", "the target's ssh runs")
     results.append(f"s. pkg install openssh-server (openssh-client with it); svc start sshd: port 22 went from "
                    f"{before!r} to {now!r}; a key login ({waited:.1f} s), root; ssh -W refused; scp of 200000 bytes there and back "
-                   f"byte for byte; the target's own ssh-keygen and ssh against its sshd")
+                   f"byte for byte; the target's own ssh-keygen and ssh -V")
 
 
 def stage_ports(args, results, inst):

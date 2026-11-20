@@ -437,6 +437,30 @@ queued and a count finished), and `start_spinner` waits for it, up to 2 s,
 before a masked spinner starts. `lockup-sample-irqoff`'s single masked
 spinner takes the same wait. The deadline is unchanged.
 
+**The third instrumented sighting, 2026-11-19, CI** (PR #536's run
+44620425095, job "build, boot, analyze (x86_64, stress)", `test-chaos`,
+13 s into the boot; the PR changes no kernel code). Again in `lockup-sample-busy`, its second half, after
+`winner 320 us, loser refused in 313 us`:
+
+```text
+mmu: TLB shootdown of 0xffffc000104c7000+0x4000: 1 of 3 CPUs acknowledged within 1 s
+cpu 1: did not acknowledge; running thread 3052 'lockup-spin', irq_depth 0, preempt_count 0, last tick 1032 ms ago at pc 0xffffffff801fad13
+cpu 2: did not acknowledge; running thread 3053 'lockup-spin', irq_depth 0, preempt_count 0, last tick 1033 ms ago at pc 0xffffffff801fad13
+KERNEL PANIC: mmu: TLB shootdown of 0xffffc000104c7000+0x4000 acknowledged by 1 of 3 CPUs; not by cpu 1,2
+CPU: 0  context: thread  thread: 3 'reaper'  irq_depth: 0  preempt_count: 1
+```
+
+The reaper's frames are `thread_put` -> `vm_kernel_free` ->
+`region_teardown`: a stack's free, waited for by two masked spinners. The
+2026-10-31 fix's wait did not hold them off, and the code says why (read,
+not yet shown by a probe). `thread_join` returns on the exiting thread's
+`complete(&self->exited)` (`thread_exit`, `kernel/scheduler/thread.c`),
+but that thread is queued for the reaper (`thread_reap_later`, which
+counts `g_reaps_queued`) only once it has switched away (`sched.c`). In
+between, `thread_reaper_idle()` is true with a reap still to come, so
+`start_spinner` can start a masked spinner just before a racer's stack
+is freed. Backlog TEST-30.
+
 **Observed once, not yet on the list: `timer-cancel-sync`'s lower
 bound.** `kernel/core/quiescetest.c:960` asserts that a `timer_cancel_sync`
 against a callback holding for 20 ms on another CPU took at least

@@ -3940,7 +3940,8 @@ See the [history index](README.md).
   - `/etc/svc/sshd` runs `/etc/ssh/start`: the `sshd` user, `/var/empty` and
     the Ed25519 host key once, then `svc stop dropbear` and sshd on port 22.
   - `make test-ports` step s: dropbear's banner, then OpenSSH's after `svc
-    start sshd`; a key login and scp both ways from the host; the target's
-    own ssh. Backlog NET-25 (scp over the target's loopback stalls), USR-12
+    start sshd`; a key login and scp both ways from the host, a forward
+    refused; the target's own ssh-keygen. Backlog NET-25 (ssh and scp over
+    the target's loopback do not end), USR-12
     (a bare `scp` is dropbear's).
   - Report: `docs/audit/2026-11-19-r3-openssh-report.md`.

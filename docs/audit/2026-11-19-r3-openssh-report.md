@@ -43,7 +43,7 @@ PR's head; the branch was rebased onto main at `09dc35a1`
   - After `svc start sshd`, port 22 answers with OpenSSH 10.6's banner.
   - From the host: a key login as root, and `scp` of 200000 random bytes
     there and back, byte for byte.
-  - On the target: its own `ssh-keygen`, and its own `ssh` to its sshd.
+  - On the target: its own `ssh-keygen` makes a key, and `ssh -V` runs.
   - The ports' programs, sshd's included, made no unimplemented call.
 
 ## Found
@@ -58,6 +58,13 @@ PR's head; the branch was rebased onto main at `09dc35a1`
   the client waits on. The same server copied the same file both ways
   with the host (backlog NET-25, not reduced). The test does not run
   `scp` on the target. Its acceptance is the host's `scp` both ways.
+- **`ssh` over loopback, the same.** The draft's step s also ran the
+  target's `ssh` to its own sshd. It passed on this machine and on the
+  other, and on CI (run 44620425095, AArch64) it did not end: the remote
+  `sh` printed the command's output and exited, then neither
+  `sshd-session` nor `ssh` exited, until the step's deadline. That is
+  NET-25's shape, now with a command rather than a copy. The step runs
+  the target's `ssh-keygen` and `ssh -V` instead.
 - **Socket options.** `ssh` and `sshd` print `setsockopt ... IP_TOS ...:
   Protocol not available`, and scp's `ssh` the same for `SO_KEEPALIVE`.
   The Linux personality refuses every socket option (LX-8), and both
@@ -106,7 +113,17 @@ now sets `DisableForwarding yes` and `PermitTunnel no`. Step s runs
 The change is to a packaged file and to `ports_test.py`, which no matrix
 step runs, so the matrix above stands.
 
-Branch CI: PENDING.
+Branch CI:
+- `a7363020` (run 44620425095): two jobs failed.
+  - "ports test (aarch64)": the target's `ssh` to its own sshd did not
+    end ("Found", above). Step s no longer runs it, and with that
+    change `make SELFTEST=0 test-ports` passes on both architectures on
+    the other machine.
+  - "build, boot, analyze (x86_64, stress)": `test-chaos` panicked in
+    `lockup-sample-busy` on a TLB shootdown, main's code
+    (`docs/testing/flakes.md`, backlog TEST-30).
+- `601abbc1` (run 44636043975): PASS.
+- This head: PENDING.
 
 ## Limits
 
