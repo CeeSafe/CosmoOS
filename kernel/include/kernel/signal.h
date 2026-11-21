@@ -136,10 +136,10 @@ void signal_reinject_sets(uint64_t thr, uint64_t shr);
  * handler runs, is `saved`, not the temporary one. */
 void signal_set_blocked_saved(uint64_t saved);
 
-/* A handler that must not be restarted after -EINTR sets the thread's
- * syscall_nr to this (rt_sigreturn: the restored result register is the
- * interrupted code's, not a result). */
+/* In syscall_nr: never restart (rt_sigreturn: the result register is the code's), or restart only when
+ * no handler ran, as after a stop (Linux's ERESTARTNOHAND: poll, select, the sleeps, sigsuspend). */
 #define SIGNAL_NO_RESTART (~0ull)
+#define SIGNAL_RESTART_NOHAND (1ull << 62)
 
 /* --- delivery points --- */
 /* True when the calling thread has a signal it can take now, or the

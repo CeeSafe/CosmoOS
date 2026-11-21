@@ -8,7 +8,7 @@
 @header(
     "kernel/epoll.h", "kernel/errno.h", "kernel/eventfd.h", "kernel/handle.h", "kernel/kmalloc.h", "kernel/object.h",
     "kernel/process.h", "kernel/signal.h", "kernel/signalfd.h", "kernel/syscall.h", "kernel/timer.h",
-    "kernel/timerobj.h", "kernel/uaccess.h", "kernel/vfs.h", "uapi/cosmo/syscall.h", "linux_abi.h", "linux_internal.h",
+    "kernel/thread.h", "kernel/timerobj.h", "kernel/uaccess.h", "kernel/vfs.h", "uapi/cosmo/syscall.h", "linux_abi.h", "linux_internal.h",
 )
 extern "C" {
     struct syscall_args {
@@ -17,6 +17,9 @@ extern "C" {
     struct handle_table;
     struct process {
         handles: handle_table;
+    }
+    struct thread {
+        syscall_nr: u64;
     }
     struct vnode;
     struct file {
@@ -70,12 +73,15 @@ extern "C" {
     const LX_EPOLL_CTL_DEL: i32 = 2;
     const LX_EPOLL_CTL_MOD: i32 = 3;
     const LX_EPOLL_CLOEXEC: u32 = 0o2000000;
+    const EINTR: i32 = 4;
     const EBADF: i32 = 9;
     const ENOMEM: i32 = 12;
     const EFAULT: i32 = 14;
     const EINVAL: i32 = 22;
+    const SIGNAL_RESTART_NOHAND: u64 = 0x4000000000000000;
 
     fn process_current() -> *mut process;
+    fn thread_current() -> *mut thread;
     fn user_range_ok(addr: u64, len: usize) -> bool;
     fn copy_to_user(userDst: u64, src: *void, len: usize) -> i32;
     fn copy_from_user(dst: *mut void, userSrc: u64, len: usize) -> i32;
@@ -398,6 +404,19 @@ unsafe fn ftruncate(a: *mut syscall_args) -> i64 {
     return rc as i64;
 }
 
+/// Linux never restarts this call after a handler, SA_RESTART or not, and does after a stop (signal(7); its
+/// ERESTARTNOHAND): an -EINTR marks the call's number so the core restarts it only when no handler ran
+/// (kernel/process/signal.c).
+///
+/// Safety: in a process's thread.
+unsafe fn noRestart(rc: i64) -> i64 {
+    if (rc == -EINTR as i64) {
+        let t = Ptr.toBorrowMut(thread_current());
+        t.syscall_nr = t.syscall_nr | SIGNAL_RESTART_NOHAND;
+    }
+    return rc;
+}
+
 // --- epoll: an interest set of fds, waited on together (kernel/io/epoll.c). See docs/audit/next-subsystem-epoll.md.
 
 /// The readiness an epoll event mask asks for. ERR and HUP are always reported, never requested.
@@ -606,7 +625,7 @@ unsafe fn epollWaitCommon(epfd: i32, uevents: u64, maxevents: i32, timeoutMs: i3
 /// Safety: the dispatcher's.
 @export("lx_epoll_wait")
 unsafe fn epollWait(a: *mut syscall_args) -> i64 =>
-    epollWaitCommon(arg32(a, 0), arg(a, 1), arg32(a, 2), arg32(a, 3));
+    noRestart(epollWaitCommon(arg32(a, 0), arg(a, 1), arg32(a, 2), arg32(a, 3)));
 
 /// Safety: the dispatcher's.
 @export("lx_epoll_pwait")
@@ -626,7 +645,7 @@ unsafe fn epollPwait(a: *mut syscall_args) -> i64 {
         old = signal_blocked();
         signal_set_blocked(mask);
     }
-    let rc = epollWaitCommon(arg32(a, 0), arg(a, 1), arg32(a, 2), arg32(a, 3));
+    let rc = noRestart(epollWaitCommon(arg32(a, 0), arg(a, 1), arg32(a, 2), arg32(a, 3)));
     if (swap) {
         signal_set_blocked_saved(old);
     }

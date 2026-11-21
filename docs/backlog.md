@@ -204,6 +204,7 @@ Open lines (struck lines are not counted):
 - **LX-26** usability, S. `sendfile` is `-ENOSYS` (`lx_unknown`): BusyBox `cat` calls it and still copies (by read and write) (a debug kernel's log, `make test-ports`, roadmap 1.3 R3, 2026-11-19: `cat 40` on x86-64, `cat 71` on AArch64).
 - **LX-27** usability, S. `execveat` is `-ENOSYS` (`lx_unknown`): a process named dropbear makes it during an ssh session, and the session works (the same runs: `dropbear 322` on x86-64, `dropbear 281` on AArch64); which call in dropbear or musl, and what it does on the refusal, is not yet known.
 - **LX-28** usability, M. No inotify (`inotify_init1` and the rest are `-ENOSYS`, `lx_unknown`): git's file-system monitor daemon is built without a backend for it (ports/git/README.md), and daemons that watch files must poll. `make test-ports`'s probe calls `inotify_init1` because it is missing.
+- ~~**LX-29** correctness, S. A handler with `SA_RESTART` restarted `poll`, `ppoll`, `select`, `pselect6`, `epoll_wait`, `epoll_pwait`, `nanosleep`, `clock_nanosleep`, `rt_sigsuspend` and `pause`, which Linux never restarts (signal(7)): dropbear's SIGTERM handler ran and its `select` blocked again, so `svc stop dropbear` left it holding port 22 and `svc start sshd` failed (v1.1.2-rc1 on the Parallels VM).~~ Fixed 2026-11-21: each of them marks the call's number on `-EINTR`, restarted after a stop and not after a handler (docs/audit/2026-11-21-lx29-eintr-norestart-report.md).
 
 ## Lock validator and concurrency
 
