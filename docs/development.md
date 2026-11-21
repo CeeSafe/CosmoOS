@@ -703,6 +703,36 @@ The release key's public half is the only `tools/keys/*.pub`
 (`tools/keys/README.md`); developer builds keep their per-machine key
 and trust the release key too.
 
+### The project's addresses
+
+The repository moves from `vkuttyp/CosmoOS` to the CeeSafe organization
+(the owner's decision, 2026-11-20), and its Pages site from
+`https://vkuttyp.github.io/CosmoOS/` to `https://ceesafe.github.io/CosmoOS/`.
+GitHub redirects the repository's web and git URLs after a transfer, and
+does not redirect Pages. Every system installed before the move reads
+the old site:
+- `/etc/cosmo-release.conf`'s `url` line, which an upgrade replaces;
+- the `cosmoos` line `cosmo-install` wrote into `/etc/pkg/repos.conf`,
+  which an upgrade keeps, as a file changed on that machine.
+
+So the move goes in this order:
+1. The old site is copied to the `CosmoOS/` folder of the owner's user
+   site, `vkuttyp/vkuttyp.github.io`, and `repository.yml` keeps it the
+   same as the project's site on every publish and re-sign. It needs
+   `COSMOOS_MIRROR_TOKEN`, a `release` environment secret: a
+   fine-grained token with write access to that repository's contents
+   alone. While `vkuttyp/CosmoOS` has a project site, the project site
+   serves that path and the folder is not read.
+2. The owner transfers the repository. From then on the folder serves the
+   old address, with the same files.
+3. After the transfer: the CI image is pushed to `ghcr.io/ceesafe`; the
+   review apps are installed for the organization; the secrets, the
+   `release` environment and its rules are checked. A release then names
+   the new address everywhere, and its `cosmo-upgrade` rewrites the old
+   `cosmoos` line of `repos.conf`.
+4. The mirror is retired once installed systems have upgraded past that
+   release.
+
 ## Running the matrix
 
 `make matrix` runs the [validation matrix](../AGENTS.md#validation-matrix)
