@@ -108,11 +108,12 @@ AArch64 has six of the calls; x86-64 also has `poll`, `select`,
 lxtest's lines. `--old` reverse-applies the fix commit (`compat/linux: a
 handler with SA_RESTART ends poll, select, epoll_wait, the sleeps and
 sigsuspend with EINTR (LX-29)`) in a throwaway worktree. It was run on
-the other machine in the CI image, on `5fb30c86`:
+the other machine in the CI image, on `1d5816b6` (the probe's fixed mode
+also needs the boot test to pass):
 
 | | x86-64 | AArch64 |
 |---|---|---|
-| fixed | PASS: `LINUXTEST: PASS` | PASS: `LINUXTEST: PASS` |
+| fixed | PASS: `LINUXTEST: PASS`, the boot test passed | PASS: the same |
 | `--old` | PASS: `LINUXTEST: FAIL (10 checks)`, exactly `nr_seen == -4` with 99, 1099, ... 9099 | PASS: `LINUXTEST: FAIL (6 checks)`, exactly 99, 1099, ... 5099 |
 
 Every call was still blocked 100 ms after the restarting signal without
@@ -120,7 +121,17 @@ the fix, and none was with it.
 
 ## Validation
 
-MATRIX_TABLE
+`make matrix` on `1d5816b6`, on the other machine, in the CI image with
+the pinned ceesafec 0.57.1, one architecture after the other:
+
+| step | x86-64 | AArch64 |
+|---|---|---|
+| builds (debug, release, chaos, hbreak), `cee-check` | PASS | PASS |
+| `host-test`, `fuzz` | PASS | PASS |
+| `analyze` | clean, 15 baselined | clean, 15 baselined |
+| debug `test`, `QEMU_SMP=1` / `2` / `4` | 228.7 / 243.8 / 246.4 s | 276.7 / 288.4 / 302.7 s |
+| `test-smp2`, `test-chaos`, `test-harness-retry` | 239.3 / 240.9 / 247.5 s | 289.8 / 319.6 / 305.0 s |
+| release `test` | 18.6 s | 23.4 s |
 
 ## Limits
 
