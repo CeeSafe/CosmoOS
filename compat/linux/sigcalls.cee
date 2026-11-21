@@ -200,6 +200,7 @@ extern "C" {
     const SA_RESTORER: u64 = 0x04000000;
     const SIGSEGV: i32 = 11;
     const SIGNAL_NO_RESTART: u64 = 0xFFFFFFFFFFFFFFFF;
+    const SIGNAL_RESTART_NOHAND: u64 = 0x4000000000000000;
 
     // The trampoline page: process.h's mmap range, types.h's page, mmu.h's protections, vmm.h's flag.
     const USER_MMAP_BASE: u64 = 0x0000100000000000;
@@ -243,6 +244,7 @@ extern "C" {
     const SIGSTOP: i32 = 19;
     const EPERM: i32 = 1;
     const ESRCH: i32 = 3;
+    const EINTR: i32 = 4;
     const ENOMEM: i32 = 12;
     const EFAULT: i32 = 14;
     const EINVAL: i32 = 22;
@@ -340,6 +342,19 @@ fn altstackOut(t: borrow thread, sp: u64) -> Stack {
     return Stack { sp: t.altstack.sp, flags: truncate<i32>(flags), pad: 0, size: t.altstack.size };
 }
 
+/// Linux never restarts this call after a handler, SA_RESTART or not, and does after a stop (signal(7); its
+/// ERESTARTNOHAND): an -EINTR marks the call's number so the core restarts it only when no handler ran
+/// (kernel/process/signal.c).
+///
+/// Safety: in a process's thread.
+unsafe fn noRestart(rc: i64) -> i64 {
+    if (rc == -EINTR as i64) {
+        let t = Ptr.toBorrowMut(thread_current());
+        t.syscall_nr = t.syscall_nr | SIGNAL_RESTART_NOHAND;
+    }
+    return rc;
+}
+
 // --- the calls -----------------------------------------------------------------------------------------------------
 
 /// Safety: the dispatcher's: `a` is the call's arguments, in the calling thread.
@@ -424,14 +439,14 @@ unsafe fn rtSigsuspend(a: *mut syscall_args) -> i64 {
     let old = signal_blocked();
     signal_set_blocked(mask);
     signal_set_blocked_saved(old);
-    return signal_wait() as i64;
+    return noRestart(signal_wait() as i64);
 }
 
 /// Safety: the dispatcher's.
 @export("lx_pause")
 unsafe fn pause(a: *mut syscall_args) -> i64 {
     let _ = a;
-    return signal_wait() as i64;
+    return noRestart(signal_wait() as i64);
 }
 
 /// Safety: the dispatcher's.

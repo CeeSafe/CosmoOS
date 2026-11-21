@@ -602,7 +602,7 @@ void signal_deliver(void *frame, bool is_syscall)
                 struct arch_user_regs regs;
                 arch_user_regs_from_syscall(frame, &regs);
                 if (arch_user_regs_result(&regs) == -EINTR) {
-                    arch_user_regs_restart_syscall(&regs, t->syscall_nr, t->syscall_arg0);
+                    arch_user_regs_restart_syscall(&regs, t->syscall_nr & ~SIGNAL_RESTART_NOHAND, t->syscall_arg0);
                     arch_user_regs_to_syscall(frame, &regs);
                 }
             }
@@ -633,7 +633,7 @@ void signal_deliver(void *frame, bool is_syscall)
             arch_user_regs_from_syscall(frame, &regs);
         else
             arch_user_regs_from_trap(frame, &regs);
-        if (is_syscall && t->syscall_nr != SIGNAL_NO_RESTART && arch_user_regs_result(&regs) == -EINTR &&
+        if (is_syscall && !(t->syscall_nr & SIGNAL_RESTART_NOHAND) && arch_user_regs_result(&regs) == -EINTR &&
             (act.flags & SA_RESTART))
             arch_user_regs_restart_syscall(&regs, t->syscall_nr, t->syscall_arg0);
         uint64_t blocked_before = t->sig_restore_blocked ? t->sig_saved_blocked : t->sig_blocked;
