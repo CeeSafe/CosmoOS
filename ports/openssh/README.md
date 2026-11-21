@@ -102,7 +102,10 @@ which logs to standard error, kept in `/var/log/svc/sshd`.
   At boot dropbear starts first (`after dropbear`) and sshd then takes
   port 22 from it.
 - `pkg remove openssh-server` removes `/etc/svc/sshd`, and dropbear
-  serves again from the next boot or `svc start dropbear`. The host key,
+  serves again from the next boot. To switch back at once, run `svc stop
+  sshd` first: removing the package does not stop a running sshd, which
+  keeps port 22, and `svc start dropbear` then fails ("No listening ports
+  available"). The host key,
   and the `sshd` user, stay.
 - The new server has its own host key, so a client that knew dropbear's
   will say the key changed.

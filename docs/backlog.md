@@ -368,6 +368,7 @@ Open lines (struck lines are not counted):
 - **USR-10** nice-to-have, S. BusyBox `passwd` warns `can't lock '/etc/shadow': Invalid argument` (and `/etc/passwd`), and syslogd logs it as `auth.err`: fcntl record locks are refused (EINVAL). The password is changed all the same (the landing terminal's second PR).
 - **USR-11** usability, S. On the live image the console shell is `cosmo-sh`, which does not run a `#!` script: `cosmo-welcome` typed there fails `Exec format error` (status 126), though v1.1.1's notes say it shows the welcome again (true on an installed system, whose shell is BusyBox `sh`). Seen 2026-11-15.
 - **USR-12** usability, S. `/bin/scp` is dropbear's, there for the classic protocol's remote end (`scp -t`/`-f`); run as a client it execs `/usr/bin/dbclient`, which the base system does not ship, and fails (`/usr/bin/dbclient: No such file or directory`, `lost connection`). `/bin` precedes `/usr/bin` in the PATH, so after `pkg install openssh-client` a bare `scp` is still that one; OpenSSH's is `/usr/bin/scp` (`make test-ports`, roadmap 1.3 R3, 2026-11-19).
+- **USR-13** usability, S. An installed system has no `/var/run` (only `/run`), so sshd logs `Couldn't create pid file "/var/run/sshd.pid": No such file or directory` at every start (v1.1.2-rc2 on the Parallels VM); it runs on under `svc`. Make `/var/run` a link to `/run`, or set `PidFile` in the package's `sshd_config`.
 
 ## VFS
 
