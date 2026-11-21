@@ -3966,3 +3966,13 @@ See the [history index](README.md).
     `tools/completion-wait-probe.py`. `io-poll` has the same order with
     a 10 ms margin: backlog TEST-32.
   - Report: `docs/audit/2026-11-20-test31-completion-report.md`.
+- **LX-29: SA_RESTART restarted the calls Linux never restarts (2026-11-21).**
+  - Found on v1.1.2-rc1 on the Parallels VM: `svc start sshd` failed
+    because dropbear kept port 22. Its SIGTERM handler (`SA_RESTART`, from
+    musl's `signal()`) ran, and the kernel restarted its `select`.
+  - `poll`, `ppoll`, `select`, `pselect6`, `epoll_wait`, `epoll_pwait`,
+    `nanosleep`, `clock_nanosleep`, `rt_sigsuspend` and `pause` now mark
+    the call's number on `-EINTR`: restarted after a stop, never after a
+    handler, as on Linux (signal(7)); lxtest's block for them and
+    `tools/eintr-norestart-probe.py`.
+  - Report: `docs/audit/2026-11-21-lx29-eintr-norestart-report.md`.

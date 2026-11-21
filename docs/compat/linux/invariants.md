@@ -78,7 +78,11 @@ personality's only other signal code is the frame builder and
 plus a frame record) with `siginfo` naming the sender or the fault
 address, the signal and the action's mask blocked while it runs, the
 interrupted registers and mask restored by `rt_sigreturn`; a `-EINTR`
-result is restarted under `SA_RESTART`; an x86-64 handler without
+result is restarted under `SA_RESTART`, except from the calls Linux never
+restarts (signal(7): `poll`, `ppoll`, `select`, `pselect6`, `epoll_wait`,
+`epoll_pwait`, `nanosleep`, `clock_nanosleep`, `rt_sigsuspend`, `pause`),
+which mark the call's number so the core restarts them after a stop and
+not after a handler (LX-29); an x86-64 handler without
 `SA_RESTORER` is refused with `SIGSEGV`, as Linux does. Check: `lxtest`
 (handler through `kill` with `SI_USER` and the sender's pid, through
 `tgkill` with `SI_TKILL`, a blocked signal stays pending and is delivered
@@ -87,7 +91,7 @@ by the unblock, `rt_sigsuspend` runs the handler and restores the mask,
 reports `SS_ONSTACK` from inside), `SIGSEGV` with `SEGV_MAPERR` and
 `SEGV_ACCERR` and the handler stepping over the store, `xmm0` surviving
 a handler that clobbers it, `SA_RESTART` making an interrupted `read`
-complete), `lxsig` (the default action: `term` 143, `segv` 139, `ill`
+complete and each of those calls end with `EINTR`), `lxsig` (the default action: `term` 143, `segv` 139, `ill`
 132); `hello_musl` still starts. Gap: real-time signal queueing (one
 pending instance per number, as for standard signals); `SIGSTOP` and
 friends are ignored; the `esr_context` on AArch64 carries syndrome 0.
