@@ -617,6 +617,19 @@ the VMID's invalidation on release (`invalidate_vm` in `hv_el2.c`, the switch's
 Not attributed; first sighting; the failed job was rerun. A next
 sighting wants the fetched word and ESR_EL1 from the guest's exit.
 
+**Second sighting, 2026-11-21:** AArch64 CI, main's merge run for #541
+(`942220a4`, documentation only; the kernel is v1.1.2's `a10b6693`, whose
+main run 44894680926 passed), run 44911949798, job 136869571774,
+`entropy boots (aarch64)`, the "Module load and unload cycles (debug)"
+boot. The same exit: `hv: self-check: a guest with paging off exited
+with rc 0 kind 3 pc 0x200 (wanted kind 7)`. This time it came on vm1,
+the real check before the injected failure, and vm2 then took the
+injection, so `the cycle failed at step -3` and every virtualisation
+marker went missing. The boot's own check at start had passed (`hv:
+backend el2, nested paging yes, 16 ASIDs`). Two sightings, both AArch64
+CI, both a guest that faulted to VBAR_EL1 + 0x200 instead of running its
+WFI; still not attributed (backlog VIRT-10). The failed jobs were rerun.
+
 Neither is on the list above and neither should be: they are not bounds a
 loaded host can trip, so a re-run distinguishes them from a regression
 rather than curing them. What the rows are for is the next reader, who
