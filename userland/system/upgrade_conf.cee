@@ -1,0 +1,105 @@
+// upgrade_conf.cee - the move of the project's old address in an installed system's configuration
+// (docs/development.md, "The project's addresses"), for cosmo-upgrade, in CeeSafe as new user code is
+// (docs/build/ceesafe.md, "User programs"). The text's rewrite is upgrade_parts.cee's (host-tested); this is the file
+// around it, which imports the system's open flags and so is built for CosmoOS only.
+//
+// An upgrade replaces /etc/cosmo-release.conf unless it was changed on the machine, and never replaces the `cosmoos`
+// line cosmo-install wrote into /etc/pkg/repos.conf; so after the root is brought to the new release, cosmo-upgrade
+// moves the old prefix in those two files to the new one.
+
+@header("fcntl.h", "string.h", "unistd.h")
+extern "C" {
+    @effects()
+    fn strlen(s: *CChar) -> usize;
+    fn open(path: *CChar, flags: i32, ...) -> i32;
+    fn read(fd: i32, buf: *mut void, n: usize) -> isize;
+    fn write(fd: i32, buf: *void, n: usize) -> isize;
+    fn fsync(fd: i32) -> i32;
+    fn close(fd: i32) -> i32;
+    fn rename(from: *CChar, to: *CChar) -> i32;
+    fn unlink(path: *CChar) -> i32;
+    // upgrade_parts.cee's export.
+    fn upgrade_address_move_text(buf: *mut u8, n: usize) -> u32;
+
+    @cvalue("O_RDONLY")
+    const O_RDONLY: u32 = 0;
+    @cvalue("O_WRONLY")
+    const O_WRONLY: u32 = 1;
+    @cvalue("O_CREAT")
+    const O_CREAT: u32 = 0x40;
+    @cvalue("O_TRUNC")
+    const O_TRUNC: u32 = 0x200;
+}
+
+/// The largest file moved: a configuration file is a few lines.
+const FILE_MAX: usize = 65536;
+
+static mut TEXT: [u8; 65536] = [0; 65536];
+
+/// The file at `path` with the old prefix moved: through a file beside it (`path` and ".moving"), written, synced and
+/// renamed over it, so a reader never sees half of it. How many occurrences were moved (0: the file is untouched); -1
+/// when it cannot be read, is larger than 64 KiB, or the new one cannot be written (the old one then stays). A file
+/// that does not exist is 0.
+/// Safety: `path` is a terminated string; the caller is one thread (the text buffer is a static).
+@export("upgrade_address_move")
+unsafe fn moveFile(path: *CChar) -> i32 {
+    let p = Slice.fromRaw(path as *u8, strlen(path));
+    let fd = open(path, truncate<i32>(O_RDONLY));
+    if (fd < 0) {
+        return 0;
+    }
+    let text = borrow mut TEXT as *mut [u8; 65536] as *mut u8;
+    var got: usize = 0;
+    var bad = false;
+    while (true) {
+        if (got == FILE_MAX) {
+            var one = [0u8; 1];
+            bad = read(fd, borrow mut one as *mut [u8; 1] as *mut void, 1) != 0; // longer than FILE_MAX
+            break;
+        }
+        let r = read(fd, text.add(got) as *mut void, FILE_MAX - got);
+        if (r < 0) {
+            bad = true;
+            break;
+        }
+        if (r == 0) {
+            break;
+        }
+        got += truncate<usize>(r);
+    }
+    let _ = close(fd);
+    if (bad) {
+        return -1;
+    }
+    let count = upgrade_address_move_text(text, got);
+    if (count == 0) {
+        return 0;
+    }
+    var tmp = [0u8; 256];
+    let suffix = ".moving".bytes();
+    if (p.length + suffix.length >= 256) {
+        return -1;
+    }
+    tmp[..p.length].copyFrom(p);
+    tmp[p.length..p.length + suffix.length].copyFrom(suffix);
+    let tp = borrow tmp as *[u8; 256] as *CChar;
+    let wfd = open(tp, truncate<i32>(O_WRONLY | O_CREAT | O_TRUNC), 0o644);
+    var ok = wfd >= 0;
+    if (ok) {
+        let w = write(wfd, text as *void, got);
+        ok = w >= 0 && truncate<usize>(w) == got && fsync(wfd) == 0;
+    }
+    if (wfd >= 0 && close(wfd) < 0) {
+        ok = false;
+    }
+    if (ok && rename(tp, path) < 0) {
+        ok = false;
+    }
+    if (!ok) {
+        if (wfd >= 0) {
+            let _ = unlink(tp);
+        }
+        return -1;
+    }
+    return truncate<i32>(count);
+}
