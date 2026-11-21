@@ -111,8 +111,8 @@ that reaches the internet through your computer:
 
 <!-- test: console -->
 ```console
-cosmo$ nslookup vkuttyp.github.io
-...Name:...vkuttyp.github.io
+cosmo$ nslookup ceesafe.github.io
+...Name:...ceesafe.github.io
 ```
 
 HTTPS works the same way as HTTP, and the server's certificate is
@@ -120,7 +120,7 @@ checked. The project's package site names its latest release:
 
 <!-- test: console -->
 ```console
-cosmo$ wget -q -O - https://vkuttyp.github.io/CosmoOS/releases/LATEST
+cosmo$ wget -q -O - https://ceesafe.github.io/CosmoOS/releases/LATEST
 tag: v...
 ```
 

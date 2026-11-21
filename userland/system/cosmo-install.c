@@ -64,9 +64,9 @@
 /* The project's network repository for this architecture (roadmap 1.1 P6;
  * docs/guide/packages.md), published by the release workflow. */
 #if defined(__x86_64__)
-#define PKG_NET_REPO "https://vkuttyp.github.io/CosmoOS/repo/x86_64"
+#define PKG_NET_REPO "https://ceesafe.github.io/CosmoOS/repo/x86_64"
 #elif defined(__aarch64__)
-#define PKG_NET_REPO "https://vkuttyp.github.io/CosmoOS/repo/aarch64"
+#define PKG_NET_REPO "https://ceesafe.github.io/CosmoOS/repo/aarch64"
 #else
 #error "cosmo-install: unknown architecture"
 #endif

@@ -4,7 +4,7 @@
 # not there yet, and print each one's digest reference for the workflow
 # (roadmap M6; docs/development.md, "Continuous integration").
 #
-#   REPO      e.g. ghcr.io/vkuttyp/cosmoos-ci (logged in already)
+#   REPO      e.g. ghcr.io/ceesafe/cosmoos-ci (logged in already)
 #   output    lines `toolchain=REPO@sha256:...` and `litmus=REPO@sha256:...`,
 #             appended to $GITHUB_OUTPUT when it is set
 #
@@ -14,7 +14,9 @@
 # GH_TOKEN, when set, reaches the build as the secret gh_token (the
 # ceesafec download's API calls), which no layer keeps.
 set -eu
-repo=$1
+# A registry's repository names are lower case; the workflows pass the owner
+# as GitHub spells it (CeeSafe).
+repo=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
 root=$(cd "$(dirname "$0")/.." && pwd)
 df="$root/ci/Dockerfile"
 hash=$(cat "$df" "$root/ci/fetch-ceesafec.py" | sha256sum | cut -c1-16)

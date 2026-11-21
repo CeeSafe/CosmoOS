@@ -105,6 +105,7 @@ SET = ("kernel.elf", "boot.tar", "cmdline", "manifest")
 UP = "/tmp/up"
 # Where the tools land when the signed package is unpacked in UP.
 TOOL = f"{UP}/sbin/cosmo-upgrade"
+OLD_REPO_LINE = "# cosmoos https://vkuttyp.github.io/CosmoOS/repo/ARCH"
 VERIFY = f"{UP}/sbin/cosmo-verify"
 
 
@@ -365,9 +366,14 @@ def stage_upgrade(args, results, port, base, new, new_loader, nonce):
         sh(b, f"echo {nonce} > /root/keep && sync", "keep")
         out = sh(b, "pkg update && pkg install hello=1.0 && hello", "hello")
         need(out, r"^hello, world \(hello 1\.0\)$", "pkg install hello=1.0 on v1.0.3")
+        # The project's old address, as a system installed before the move to CeeSafe names it (docs/development.md,
+        # "The project's addresses"); a comment, so pkg reads nothing new.
+        sh(b, f"echo '{OLD_REPO_LINE}' >> /etc/pkg/repos.conf && sync", "old address")
         t0 = time.monotonic()
         out = sh(b, f"{TOOL} {UP}", "up")
         up_s = time.monotonic() - t0
+        need(out, r"^cosmo-upgrade: /etc/pkg/repos\.conf: the project's address moved to https://ceesafe\.github\.io/CosmoOS/$",
+             "the upgrade's move of the old address")
         need(out, r"^cosmo-upgrade: loader switched: ", "the upgrade")
         need(out, r"^cosmo-upgrade: boot set switched: ", "the upgrade")
         m = need(out, r"^cosmo-upgrade: root: (\d+) files replaced, (\d+) added, (\d+) removed, (\d+) unchanged, "
@@ -452,7 +458,7 @@ def stage_hold(args, results, keyid, new_loader, uloader):
                    f"PASS in {b.elapsed():.1f}s")
 
 
-def stage_new(args, results, keyid, nonce):
+def stage_new(args, results, keyid, nonce, moved=False):
     b = boot_disk("new", args)
     try:
         b.wait_prompt("the first prompt")
@@ -470,6 +476,11 @@ def stage_new(args, results, keyid, nonce):
         # console's session").
         need(out, r"^root:x:0:0:root:/root:/bin/sh$", "the new set's /etc/passwd, root's password in /etc/shadow")
         need(out, r"^/var/lib/pkg/repo$", "the installer's /etc/pkg/repos.conf, kept")
+        if moved:
+            need(out, "^" + re.escape(OLD_REPO_LINE.replace("vkuttyp", "ceesafe")) + "$",
+                 "repos.conf's old address, moved by the upgrade")
+            if re.search(r"vkuttyp", out):
+                raise Fail("new: the old address is still in /etc/pkg/repos.conf")
         out = sh(b, "cosmo-upgrade --status", "status")
         need(out, rf"^cosmo-upgrade: current: \S+, kernel\.elf \d+ bytes, boot\.tar \d+ bytes, key {keyid}$",
              "cosmo-upgrade --status")
@@ -796,7 +807,7 @@ def main():
         stage_stop(args, results, port, "loader", base, new_loader, RELEASE_KEY)
         stage_upgrade(args, results, port, base, new, new_loader, nonce)
         stage_hold(args, results, keyid, new_loader, uloader)
-        stage_new(args, results, keyid, nonce)
+        stage_new(args, results, keyid, nonce, moved=True)
         stage_back(args, results, port, keyid, base, new, new_loader, nonce)
         stage_forward(args, results, keyid, base, new, new_loader)
     except Done:

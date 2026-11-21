@@ -2,7 +2,7 @@
 # (roadmap 1.1 P6; docs/development.md, "Releases"). scripts/publish-repo.py
 # builds the site from the release's assets or from the site as it stands,
 # and this job pushes it as the one commit of the `repo` branch, which
-# Pages serves at https://vkuttyp.github.io/CosmoOS/:
+# Pages serves at https://ceesafe.github.io/CosmoOS/:
 #
 #   repo/ARCH/INDEX.90        what an installed system's pkg update reads
 #                             (from v1.0.7), signed for 90 days

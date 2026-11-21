@@ -61,7 +61,7 @@ from install_test import Boot, Fail, need  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PKGBUILD = os.path.join(ROOT, "tools", "pkgbuild.py")
 DAY = 86400
-PUBLISHED = "https://vkuttyp.github.io/CosmoOS"   # the project's (docs/guide/packages.md)
+PUBLISHED = "https://ceesafe.github.io/CosmoOS"   # the project's (docs/guide/packages.md)
 
 
 def utc(t):

@@ -17,7 +17,7 @@ is not the pinned one. That is the only network access of the build. Each
 archive has two URLs, tried in order with three attempts each and
 backoff (a read that stalls for 60 s ends the attempt, so every URL's
 attempts end inside a CI job): the upstream one, then the copy in this repository's
-[`pinned-sources`](https://github.com/vkuttyp/CosmoOS/releases/tag/pinned-sources)
+[`pinned-sources`](https://github.com/CeeSafe/CosmoOS/releases/tag/pinned-sources)
 release (the same bytes; the digest is checked whichever URL served them).
 The fetch fails only when every URL has failed, and its error names each
 URL with its last failure. A DNS failure of busybox.net alone once turned

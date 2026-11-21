@@ -441,7 +441,7 @@ def stage_install(args, results):
         # Roadmap M6: the repository is on the root and repos.conf names it,
         # then (1.1 P6) the project's network repository.
         need(out, r"^local file:///var/lib/pkg/repo$", "the installed /etc/pkg/repos.conf (the disk's repository)")
-        need(out, r"^cosmoos https://vkuttyp\.github\.io/CosmoOS/repo/(x86_64|aarch64)$",
+        need(out, r"^cosmoos https://ceesafe\.github\.io/CosmoOS/repo/(x86_64|aarch64)$",
              "the installed /etc/pkg/repos.conf (the network repository)")
         need(out, r"^INDEX$", "the installed repository /var/lib/pkg/repo")
         for d in ("bin", "sbin", "etc", "dev", "proc", "tmp", "mnt", "var"):

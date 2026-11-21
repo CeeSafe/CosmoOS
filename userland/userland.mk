@@ -56,7 +56,8 @@ PROG_EXTRA_SRCS_cosmo-install := userland/system/install_gpt.c userland/system/i
 PROG_DIR_cosmo-upgrade := system
 PROG_EXTRA_SRCS_cosmo-upgrade := userland/system/upgrade_fat.c userland/system/blkdevs.c userland/system/install_sha512.c \
 	userland/system/upgrade_ed25519.c userland/system/relsig.c userland/lib/fetch.c userland/lib/rootsnap.c \
-	userland/system/upgrade_be.c
+	userland/system/upgrade_be.c userland/system/upgrade_parts.c \
+	userland/system/upgrade_conf.c
 # A release file against its signed SHA256SUMS (the upgrading guide).
 PROG_DIR_cosmo-verify := system
 PROG_EXTRA_SRCS_cosmo-verify := userland/system/install_sha512.c userland/system/upgrade_ed25519.c userland/system/relsig.c
@@ -93,7 +94,7 @@ PROG_EXTRA_SRCS_init := userland/lib/rootsnap.c
 # the link names that main. A C program that links code generated from CeeSafe (install_gpt.c's GPT code) links the
 # same runtime and hook: USER_CEE_LINKED.
 USER_CEE_PROGRAMS := hostname cosmo-grow cosmo-seed sync
-USER_CEE_LINKED := $(USER_CEE_PROGRAMS) cosmo-install blkid
+USER_CEE_LINKED := $(USER_CEE_PROGRAMS) cosmo-install blkid cosmo-upgrade
 prog_srcs = userland/$(PROG_DIR_$(1))/$(1).c $(PROG_EXTRA_SRCS_$(1)) \
 	$(if $(filter $(1),$(USER_CEE_LINKED)),userland/lib/ceesafe_panic.c)
 prog_ldflags = $(if $(filter $(1),$(USER_CEE_PROGRAMS)),--defsym=main=cosmo_program_main)

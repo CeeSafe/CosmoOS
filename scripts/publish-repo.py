@@ -260,7 +260,7 @@ def main():
     with open(os.path.join(a.out, "README.md"), "w") as f:
         f.write("# CosmoOS package repository and releases\n\n"
                 "Made by `.github/workflows/repository.yml` (`scripts/publish-repo.py`); every commit replaces\n"
-                "the last. Served by GitHub Pages at https://vkuttyp.github.io/CosmoOS/ (docs/guide/packages.md).\n")
+                "the last. Served by GitHub Pages at https://ceesafe.github.io/CosmoOS/ (docs/guide/packages.md).\n")
     return 0
 
 

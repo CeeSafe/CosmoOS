@@ -1,0 +1,87 @@
+// upgrade_parts.cee - cosmo-upgrade's pure parts in CeeSafe, as new user code is (docs/build/ceesafe.md, "User
+// programs"): the boot archive's header fields (a ustar number, a name with a ".." component), moved here from
+// cosmo-upgrade.c, and the rewrite of the project's old address in a configuration file's text (docs/development.md,
+// "The project's addresses"). No file and no system call: linked into cosmo-upgrade, whose upgrade_conf.cee reads and
+// writes the files, and into tests/host/test_upgrade_parts.c; both declare the exports below themselves.
+//
+// The address: the project's site moved from https://vkuttyp.github.io/CosmoOS/ to https://ceesafe.github.io/CosmoOS/
+// with the repository (2026-11-21). The two prefixes are the same length, so the text is rewritten in place and
+// nothing else in it moves.
+
+@header("string.h")
+extern "C" {
+    @effects()
+    fn strlen(s: *CChar) -> usize;
+}
+
+// ---- The boot archive's header fields (mkbootarchive.py's ustar) ----
+
+/// A ustar number: octal digits after leading spaces, then only NULs and spaces. `*ok` is set to 0 when anything else
+/// follows the digits (and left alone otherwise).
+/// Safety: `f` holds `n` bytes; `ok` is writable.
+@export("upgrade_ustar_octal")
+unsafe fn ustarOctal(f: *u8, n: usize, ok: *mut i32) -> u64 {
+    let b = Slice.fromRaw(f, n);
+    var v: u64 = 0;
+    var i: usize = 0;
+    while (i < n && b[i] == ' ' as u8) {
+        i += 1;
+    }
+    while (i < n && b[i] >= '0' as u8 && b[i] <= '7' as u8) {
+        v = v.wrappingMul(8).wrappingAdd((b[i] - '0' as u8) as u64);
+        i += 1;
+    }
+    while (i < n) {
+        if (b[i] != 0 && b[i] != ' ' as u8) {
+            ok.write(0);
+        }
+        i += 1;
+    }
+    return v;
+}
+
+/// Whether `name` has a component that is exactly "..".
+/// Safety: `name` is a terminated string.
+@export("upgrade_has_dotdot")
+unsafe fn hasDotdot(name: *CChar) -> bool {
+    let s = Slice.fromRaw(name as *u8, strlen(name));
+    var i: usize = 0;
+    while (i < s.length) {
+        var j = i;
+        while (j < s.length && s[j] != '/' as u8) {
+            j += 1;
+        }
+        if (j - i == 2 && s[i] == '.' as u8 && s[i + 1] == '.' as u8) {
+            return true;
+        }
+        i = j;
+        while (i < s.length && s[i] == '/' as u8) {
+            i += 1;
+        }
+    }
+    return false;
+}
+
+// ---- The project's old address ----
+
+fn oldPrefix() -> Slice<static, u8> => "https://vkuttyp.github.io/CosmoOS/".bytes();
+fn newPrefix() -> Slice<static, u8> => "https://ceesafe.github.io/CosmoOS/".bytes();
+/// Every occurrence of the old prefix in `buf` (`n` bytes) rewritten as the new one, in place; how many.
+/// Safety: `buf` holds `n` writable bytes.
+@export("upgrade_address_move_text")
+unsafe fn moveText(buf: *mut u8, n: usize) -> u32 {
+    let b = SliceMut.fromRaw(buf, n);
+    let k = oldPrefix().length;
+    var count: u32 = 0;
+    var i: usize = 0;
+    while (k <= n && i <= n - k) {
+        if (b[i..i + k] == oldPrefix()) {
+            b[i..i + k].copyFrom(newPrefix());
+            count += 1;
+            i += k;
+        } else {
+            i += 1;
+        }
+    }
+    return count;
+}

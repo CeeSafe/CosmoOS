@@ -268,33 +268,12 @@ struct member {
     size_t size;
 };
 
-static uint64_t octal(const uint8_t *f, size_t n, bool *ok)
-{
-    uint64_t v = 0;
-    size_t i = 0;
-    while (i < n && f[i] == ' ')
-        i++;
-    for (; i < n && f[i] >= '0' && f[i] <= '7'; i++)
-        v = v * 8 + (uint64_t)(f[i] - '0');
-    for (; i < n; i++)
-        if (f[i] != '\0' && f[i] != ' ')
-            *ok = false;
-    return v;
-}
-
-/* Does `name` have a component that is exactly ".."? */
-static bool has_dotdot(const char *name)
-{
-    for (const char *c = name; *c;) {
-        size_t n = strcspn(c, "/");
-        if (n == 2 && c[0] == '.' && c[1] == '.')
-            return true;
-        c += n;
-        while (*c == '/')
-            c++;
-    }
-    return false;
-}
+/* upgrade_parts.cee's (CeeSafe): a ustar number, whose *ok it sets to 0 on
+ * a bad field; whether a name has a ".." component; the move of the
+ * project's old address in a configuration file. */
+uint64_t upgrade_ustar_octal(const uint8_t *f, size_t n, int32_t *ok);
+bool upgrade_has_dotdot(const char *name);
+int32_t upgrade_address_move(const char *path);
 
 /* The archive's regular files and links (mkbootarchive.py's ustar). The
  * count, or -1 with `err`. */
@@ -313,11 +292,11 @@ static int archive_index(const uint8_t *buf, size_t len, struct member **out, ch
             zero = h[i] == 0;
         if (zero)
             break;
-        bool ok = memcmp(h + 257, "ustar", 5) == 0;
-        uint64_t sum = octal(h + 148, 8, &ok), want = 0;
+        int32_t ok = memcmp(h + 257, "ustar", 5) == 0;
+        uint64_t sum = upgrade_ustar_octal(h + 148, 8, &ok), want = 0;
         for (int i = 0; i < 512; i++)
             want += (i >= 148 && i < 156) ? ' ' : h[i];
-        uint64_t size = octal(h + 124, 12, &ok);
+        uint64_t size = upgrade_ustar_octal(h + 124, 12, &ok);
         size_t padded = (size_t)((size + 511) / 512 * 512);
         if (!ok || sum != want || size > len || pos + 512 + padded > len || n == MAX_MEMBERS) {
             snprintf(err, errlen, "boot.tar: bad member at offset %zu", pos);
@@ -337,7 +316,7 @@ static int archive_index(const uint8_t *buf, size_t len, struct member **out, ch
             e->link[100] = '\0';
             e->data = buf + pos + 512;
             e->size = (size_t)size;
-            if (e->name[0] == '/' || has_dotdot(e->name)) {
+            if (e->name[0] == '/' || upgrade_has_dotdot(e->name)) {
                 snprintf(err, errlen, "boot.tar: member name refused: %s", e->name);
                 free(m);
                 return -1;
@@ -847,6 +826,15 @@ static int base_pass(const struct set *from, const struct set *to)
     int rc = root_pass(a, na, b, nb, &c);
     say("root: %u files replaced, %u added, %u removed, %u unchanged, %u kept as changed here (the new one beside "
         "each as FILE.new)", c.replaced, c.added, c.removed, c.same, c.kept);
+    /* The project's site moved (docs/development.md, "The project's addresses"): repos.conf's line is cosmo-install's,
+     * which no upgrade replaces, and cosmo-release.conf stays when it was changed here. */
+    for (int i = 0; rc == 0 && i < 2; i++) {
+        const char *conf = i ? "/etc/cosmo-release.conf" : "/etc/pkg/repos.conf";
+        int32_t moved = upgrade_address_move(conf);
+        if (moved != 0)
+            say(moved > 0 ? "%s: the project's address moved to https://ceesafe.github.io/CosmoOS/" :
+                "%s: the project's old address could not be moved", conf);
+    }
     free(a);
     free(b);
     if (rc == 0)
@@ -2481,7 +2469,7 @@ static int hold_lock(void)
 /* --- fetching a release (roadmap 1.1 P6) ------------------------------------------------ */
 
 #define RELEASE_CONF        "/etc/cosmo-release.conf"
-#define RELEASE_URL_DEFAULT "https://vkuttyp.github.io/CosmoOS/releases"
+#define RELEASE_URL_DEFAULT "https://ceesafe.github.io/CosmoOS/releases"
 #define FETCH_DIR           "/var/cache/cosmo-upgrade"
 #define FETCH_MAX           (256ull << 20)
 
