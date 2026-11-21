@@ -3976,3 +3976,12 @@ See the [history index](README.md).
     handler, as on Linux (signal(7)); lxtest's block for them and
     `tools/eintr-norestart-probe.py`.
   - Report: `docs/audit/2026-11-21-lx29-eintr-norestart-report.md`.
+- **The old Pages address mirrored, for the move to CeeSafe (2026-11-21).**
+  - GitHub Pages does not follow a transferred repository, and installed
+    systems read `https://vkuttyp.github.io/CosmoOS/`. The site is copied
+    to the `CosmoOS/` folder of the owner's user site
+    (`vkuttyp/vkuttyp.github.io`), and `repository.yml` keeps it the same
+    on every publish and re-sign, with the `release` environment's
+    `COSMOOS_MIRROR_TOKEN`. The project site shadows the folder until the
+    transfer. The order of the move: `docs/development.md`, "The
+    project's addresses".
