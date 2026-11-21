@@ -3218,6 +3218,17 @@ The same matrix's other AArch64 boots passed, and so did the step run
 again (278.0 s). Four sightings, all AArch64, three of them the count
 below at one CPU or more; still not attributed (backlog TEST-18).
 
+**Fifth sighting, 2026-11-21, the first on x86-64:** CI, PR #545 at
+`6db9b2ea` (the project's addresses and `cosmo-upgrade`'s move of the old
+one: userland, scripts and documents, no kernel code), run 44945021063,
+job 136971009688, "build, boot, analyze (x86_64, stress)", the boot under
+a chaos migrator: `check failed: threads_settle(before) at line 998 (250
+ms)`; `threads_settle: 18 threads after 200 ms, expected 19`, and the
+dump lists only the boot's resident threads (kmain, four idles, reaper,
+quiesce, four netrx, irqpoll/0 and /1 and the rest) -- the count below
+again. Five sightings, four AArch64 and now one x86-64; still not
+attributed (backlog TEST-18). The failed job was rerun.
+
 ## `irqpoll-boost` over its gap bound, 2026-10-10
 
 `SELFTEST: irqpoll-boost ... FAIL: check failed: gap_ms <= BOOST_GAP_MS
