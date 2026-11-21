@@ -395,3 +395,4 @@ Open lines (struck lines are not counted):
 - **VIRT-9** nice-to-have, L. Nested virtualisation (after the VM state UAPI, VIRT-5).
 - **VIRT-7** nice-to-have, M. VM operations as submittable async-I/O.
 - **VIRT-8** nice-to-have, M. vGIC on GICv2 hosts.
+- **VIRT-10** correctness, M. The EL2 backend's self-check guest (paging off, a WFI at 0x80000000) sometimes takes a synchronous exception to VBAR_EL1 + 0x200 instead (`exited with rc 0 kind 3 pc 0x200 (wanted kind 7)`), after the same boot's check passed; `hv-disabled` then leaves the backend off and every virtualisation marker is missing. Twice on AArch64 CI (2026-10-21; 2026-11-21, main red on a documentation merge; flakes.md). Have the check report the guest's ESR_EL1, FAR_EL1 and the word at its ELR_EL1, then find what the guest fetched.
