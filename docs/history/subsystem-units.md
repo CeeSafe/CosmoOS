@@ -3996,3 +3996,4 @@ See the [history index](README.md).
     the root to a release (`userland/system/upgrade_conf.cee`; the text's
     rewrite is `upgrade_parts.cee`'s, with the boot archive's ustar fields
     moved there from `cosmo-upgrade.c`; `test_upgrade_parts`).
+  - Report: `docs/audit/2026-11-21-ceesafe-addresses-report.md`.
