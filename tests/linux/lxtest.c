@@ -368,6 +368,44 @@ static int t_later_writer(void *arg)
 }
 #endif
 
+/* The calls Linux never restarts after a handler, SA_RESTART or not
+ * (signal(7)): call `arg` of them, two seconds at most, on the empty
+ * pipe g_pipe[0] (or the epoll set g_nr_ep holding it). */
+enum { NR_PPOLL, NR_PSELECT6, NR_EPOLL_PWAIT, NR_NANOSLEEP, NR_CLOCK_NANOSLEEP, NR_SIGSUSPEND,
+       NR_POLL, NR_SELECT, NR_EPOLL_WAIT, NR_PAUSE, NR_CALLS };
+static volatile long g_nr_rc;
+static int g_nr_ep;
+static int t_norestart(void *arg)
+{
+    struct lx_timespec two = { 2, 0 };
+    struct lx_pollfd pf = { g_pipe[0], LX_POLLIN, 0 };
+    struct lx_epoll_event ev;
+    uint64_t rset[16], none = 0;
+    lx_fdzero(rset);
+    lx_fdset(rset, g_pipe[0]);
+    long rc = 99;
+    switch ((int)(uintptr_t)arg) {
+    case NR_PPOLL: rc = sc4(LX_ppoll, &pf, 1, &two, 0); break;
+    case NR_PSELECT6: rc = sc6(LX_pselect6, g_pipe[0] + 1, rset, 0, 0, &two, 0); break;
+    case NR_EPOLL_PWAIT: rc = sc6(LX_epoll_pwait, g_nr_ep, &ev, 1, 2000, 0, 0); break;
+    case NR_NANOSLEEP: rc = sc2(LX_nanosleep, &two, 0); break;
+    case NR_CLOCK_NANOSLEEP: rc = sc4(LX_clock_nanosleep, LX_CLOCK_MONOTONIC, 0, &two, 0); break;
+    case NR_SIGSUSPEND: rc = sc2(LX_rt_sigsuspend, &none, 8); break;
+#ifdef LX_poll
+    case NR_POLL: rc = sc3(LX_poll, &pf, 1, 2000); break;
+    case NR_SELECT: {
+        struct lx_timeval tv = { 2, 0 };
+        rc = sc5(LX_select, g_pipe[0] + 1, rset, 0, 0, &tv);
+        break;
+    }
+    case NR_EPOLL_WAIT: rc = sc4(LX_epoll_wait, g_nr_ep, &ev, 1, 2000); break;
+    case NR_PAUSE: rc = sc0(LX_pause); break;
+#endif
+    }
+    g_nr_rc = rc;
+    return 0;
+}
+
 static int t_waiter(void *arg)
 {
     int i = (int)(uintptr_t)arg;
@@ -3600,6 +3638,48 @@ int main(int argc, char **argv)
         }
         sc1(LX_close, us);
         sc1(LX_close, tapfd);
+    }
+
+    /* --- the calls Linux never restarts (signal(7)): a handler with
+     * SA_RESTART ends each with EINTR. dropbear's select did not end, so
+     * `svc stop dropbear` left it serving (v1.1.2-rc1). Each call blocks in
+     * a thread for up to two seconds; 100 ms after the restarting signal it
+     * must have returned -EINTR. If not, a second signal without SA_RESTART
+     * ends it, so a restarted call cannot hang the test. --- */
+    {
+        CHECKV(sc2(LX_pipe2, g_pipe, 0) == 0, 0);
+        g_nr_ep = (int)sc1(LX_epoll_create1, LX_EPOLL_CLOEXEC);
+        struct lx_epoll_event nee = { .events = LX_EPOLLIN, .data = 1 };
+        CHECKV(g_nr_ep >= 0 && sc4(LX_epoll_ctl, g_nr_ep, LX_EPOLL_CTL_ADD, g_pipe[0], &nee) == 0, g_nr_ep);
+        struct lx_sigaction ra = { .handler = (uint64_t)(uintptr_t)thread_handler,
+                                   .flags = LX_SA_SIGINFO | LX_SA_RESTORER | LX_SA_RESTART,
+                                   .restorer = (uint64_t)(uintptr_t)lx_restorer };
+        struct lx_sigaction na = ra;
+        na.flags &= ~LX_SA_RESTART;
+        CHECKV(sc4(LX_rt_sigaction, 10, &ra, 0, 8) == 0 && sc4(LX_rt_sigaction, 12, &na, 0, 8) == 0, 0);
+#ifdef LX_poll
+        int calls = NR_CALLS;
+#else
+        int calls = NR_POLL;   /* AArch64 has no poll, select, epoll_wait or pause */
+#endif
+        for (int c = 0; c < calls; c++) {
+            g_nr_rc = 99;
+            long tn = lx_clone(t_norestart, g_stacks[0] + sizeof(g_stacks[0]), (void *)(uintptr_t)c, THREAD_FLAGS,
+                               &ptid, &g_tidword[0], g_tcb);
+            CHECKV(tn > 0, tn);
+            nap_ms(30);
+            CHECKV(sc3(LX_tgkill, pid, tn, 10) == 0, c);
+            nap_ms(100);
+            long nr_seen = g_nr_rc;
+            if (nr_seen == 99)
+                sc3(LX_tgkill, pid, tn, 12);   /* restarted: end it */
+            CHECKV(lx_join(&g_tidword[0]) == 0, c);
+            CHECKV(nr_seen == -4, c * 1000 + nr_seen);   /* EINTR, from the restarting signal */
+        }
+        CHECKV(sc4(LX_rt_sigaction, 10, &dfl, 0, 8) == 0 && sc4(LX_rt_sigaction, 12, &dfl, 0, 8) == 0, 0);
+        sc1(LX_close, g_nr_ep);
+        sc1(LX_close, g_pipe[0]);
+        sc1(LX_close, g_pipe[1]);
     }
 
     /* --- rlimits (milestone 6): one value, reported as cur == max --- */
