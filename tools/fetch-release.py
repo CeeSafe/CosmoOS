@@ -31,7 +31,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
 import modsign  # noqa: E402
 
-REPO = os.environ.get("GITHUB_REPOSITORY", "vkuttyp/CosmoOS")
+REPO = os.environ.get("GITHUB_REPOSITORY", "CeeSafe/CosmoOS")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # SHA256SUMS of the releases published before SHA256SUMS.sig (v1.0.4), as
 # GitHub serves them (checked 2026-10-17 with `gh release download`).

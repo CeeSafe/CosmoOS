@@ -2469,7 +2469,7 @@ static int hold_lock(void)
 /* --- fetching a release (roadmap 1.1 P6) ------------------------------------------------ */
 
 #define RELEASE_CONF        "/etc/cosmo-release.conf"
-#define RELEASE_URL_DEFAULT "https://vkuttyp.github.io/CosmoOS/releases"
+#define RELEASE_URL_DEFAULT "https://ceesafe.github.io/CosmoOS/releases"
 #define FETCH_DIR           "/var/cache/cosmo-upgrade"
 #define FETCH_MAX           (256ull << 20)
 

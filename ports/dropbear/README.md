@@ -11,7 +11,7 @@ manager on the installed root only.
 
 `scripts/fetch-pinned.py` fetches it once into `$(PORTS_CACHE)`: the
 upstream URL first, then the copy in this repository's
-[`pinned-sources`](https://github.com/vkuttyp/CosmoOS/releases/tag/pinned-sources)
+[`pinned-sources`](https://github.com/CeeSafe/CosmoOS/releases/tag/pinned-sources)
 release, the digest checked whichever served it (`ports/busybox/README.md`).
 The upstream answers Python's default User-Agent with 403, so fetch-pinned
 sends one of its own.

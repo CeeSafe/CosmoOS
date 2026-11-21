@@ -1196,7 +1196,7 @@ its pending rollback (`docs/kernel-services/filesystem/cosmofs/design.md`,
 ### Fetching (roadmap 1.1 P6)
 
 `/etc/cosmo-release.conf` names the release index, `url
-https://vkuttyp.github.io/CosmoOS/releases` (the default when the file is
+https://ceesafe.github.io/CosmoOS/releases` (the default when the file is
 absent), and may add `pin sha256:HEX`. The release workflow publishes each
 release's set there (`.github/workflows/repository.yml`,
 `scripts/publish-repo.py`): `TAG/SHA256SUMS`, `TAG/SHA256SUMS.sig` and the

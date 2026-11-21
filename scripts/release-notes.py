@@ -65,18 +65,18 @@ def main():
     tls = mk_vars("ports/mbedtls/mbedtls.mk")
     lim = open(os.path.join(ROOT, "docs", "guide", "limitations.md"), encoding="utf-8").read()
     lim = lim.split("\n", 1)[1].strip()   # drop the page title
-    lim = lim.replace("](../", "](https://github.com/vkuttyp/CosmoOS/blob/" + a.tag + "/docs/")
-    lim = re.sub(r"\]\(([a-z-]+\.md)\)", r"](https://github.com/vkuttyp/CosmoOS/blob/" + a.tag + r"/docs/guide/\1)", lim)
+    lim = lim.replace("](../", "](https://github.com/CeeSafe/CosmoOS/blob/" + a.tag + "/docs/")
+    lim = re.sub(r"\]\(([a-z-]+\.md)\)", r"](https://github.com/CeeSafe/CosmoOS/blob/" + a.tag + r"/docs/guide/\1)", lim)
     version = a.tag.lstrip("v")
     n = []
     if a.lead:
         n.append(open(a.lead, encoding="utf-8").read().rstrip() + "\n")
         n.append("## About CosmoOS\n")
-    n.append(f"CosmoOS {version}: the [1.0 roadmap](https://github.com/vkuttyp/CosmoOS/blob/{a.tag}/docs/roadmap-1.0.md) "
+    n.append(f"CosmoOS {version}: the [1.0 roadmap](https://github.com/CeeSafe/CosmoOS/blob/{a.tag}/docs/roadmap-1.0.md) "
              "completed. CosmoOS installs to a disk, reboots into it, is used through BusyBox `ash`, keeps files "
              "across reboots, reaches the network by name, accepts an ssh login, and has a verified boot chain and "
              "sound randomness, on x86-64 and AArch64 under QEMU.\n")
-    n.append(f"Start with the [user guide](https://github.com/vkuttyp/CosmoOS/blob/{a.tag}/docs/guide/README.md). "
+    n.append(f"Start with the [user guide](https://github.com/CeeSafe/CosmoOS/blob/{a.tag}/docs/guide/README.md). "
              "Each architecture's files: `cosmoos-ARCH.img` (the signed live image), its UEFI loader, `kernel.elf`, "
              "`boot.tar`, `cmdline`, the signed `manifest`, `cosmo-upgrade` and its signed package; and "
              "`cosmoos-ARCH-cloud.qcow2`, an installed system for a cloud, which grows to its disk and takes its SSH key, "

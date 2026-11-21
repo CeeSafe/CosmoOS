@@ -75,16 +75,25 @@ tools/keys/release-2026.pub --in SHA256SUMS --sig SHA256SUMS.sig`.
 
 From v1.0.6 `cosmo-upgrade` fetches a release itself, over HTTPS, from
 the project's release index on GitHub Pages,
-`https://vkuttyp.github.io/CosmoOS/releases` (`/etc/cosmo-release.conf`
+`https://ceesafe.github.io/CosmoOS/releases` (`/etc/cosmo-release.conf`
 names it; the release workflow publishes each release there, without its
 images). The certificate is checked as `wget` checks it, against
 `/etc/ssl/certs/ca-certificates.crt`, so the clock must be right.
+
+The project moved to the CeeSafe organization on 2026-11-21, and the
+site from `https://vkuttyp.github.io/CosmoOS/` to
+`https://ceesafe.github.io/CosmoOS/`. A system installed before then
+names the old address, which keeps serving the same releases and
+packages. Upgrading to v1.1.3 or later moves it: `cosmo-upgrade` rewrites
+the old address in `/etc/pkg/repos.conf` and `/etc/cosmo-release.conf`
+and says so (`... the project's address moved to
+https://ceesafe.github.io/CosmoOS/`).
 
 ```text
 cosmo$ cosmo-upgrade --check
 cosmo-upgrade: v1.0.7 is newer than this system's v1.0.6 (published ...): cosmo-upgrade --fetch v1.0.7
 cosmo$ cosmo-upgrade --fetch v1.0.7
-cosmo-upgrade: fetching the x86_64 set from https://vkuttyp.github.io/CosmoOS/releases/v1.0.7 into /var/cache/cosmo-upgrade/v1.0.7
+cosmo-upgrade: fetching the x86_64 set from https://ceesafe.github.io/CosmoOS/releases/v1.0.7 into /var/cache/cosmo-upgrade/v1.0.7
 cosmo-upgrade: verified SHA256SUMS, signed by key 36ae7bb4947896ab in /etc/pkg/keys
 cosmo-upgrade: fetched the set's four files, each matching SHA256SUMS
 cosmo-upgrade: verified SHA256SUMS, signed by key 36ae7bb4947896ab in /etc/pkg/keys, and the set's four files against it
@@ -127,7 +136,7 @@ the new `cosmo-upgrade` where its `cosmo-fetch` is:
 
 ```text
 cosmo$ mkdir /tmp/up && cd /tmp/up
-cosmo$ wget -q https://vkuttyp.github.io/CosmoOS/releases/v1.0.6/cosmoos-x86_64-cosmo-upgrade.cpk
+cosmo$ wget -q https://ceesafe.github.io/CosmoOS/releases/v1.0.6/cosmoos-x86_64-cosmo-upgrade.cpk
 cosmo$ pkg install -n ./cosmoos-x86_64-cosmo-upgrade.cpk
 pkg: installing cosmo-upgrade-1.0.6 (3 files)
 cosmo$ tar -xf cosmoos-x86_64-cosmo-upgrade.cpk sbin/cosmo-upgrade bin/cosmo-fetch
@@ -141,7 +150,7 @@ replaced; the new one is beside it as `repos.conf.new`). Add the network
 repository to it, for your architecture:
 
 ```text
-cosmo$ echo 'cosmoos https://vkuttyp.github.io/CosmoOS/repo/x86_64' >> /etc/pkg/repos.conf
+cosmo$ echo 'cosmoos https://ceesafe.github.io/CosmoOS/repo/x86_64' >> /etc/pkg/repos.conf
 cosmo$ pkg update
 ```
 
@@ -276,7 +285,7 @@ changes nothing else:
 
 ```text
 cosmo$ mkdir /tmp/up && cd /tmp/up
-cosmo$ wget -q https://vkuttyp.github.io/CosmoOS/releases/v1.0.9/cosmoos-x86_64-cosmo-upgrade.cpk
+cosmo$ wget -q https://ceesafe.github.io/CosmoOS/releases/v1.0.9/cosmoos-x86_64-cosmo-upgrade.cpk
 cosmo$ pkg install -n ./cosmoos-x86_64-cosmo-upgrade.cpk
 pkg: installing cosmo-upgrade-1.0.9 (3 files)
 cosmo$ tar -xf cosmoos-x86_64-cosmo-upgrade.cpk sbin/cosmo-upgrade

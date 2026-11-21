@@ -4,7 +4,7 @@
 has two, named in `/etc/pkg/repos.conf`: `local`, `/var/lib/pkg/repo`,
 where the installer copied the live image's repository (the packages the
 image was built with), and `cosmoos`, the project's network repository,
-`https://vkuttyp.github.io/CosmoOS/repo/ARCH` (`x86_64` or `aarch64`),
+`https://ceesafe.github.io/CosmoOS/repo/ARCH` (`x86_64` or `aarch64`),
 which each release republishes ([Network repositories](#network-repositories)
 below). A release after v1.1.1 adds the software a server needs to it:
 `openssh-client` and `openssh-server` (OpenSSH 10.6), `curl`, `git` and
@@ -43,7 +43,7 @@ qemu-system-aarch64 -machine virt -cpu cortex-a72 -smp 2 -m 512M \
 ```console
 cosmo$ cat /etc/pkg/repos.conf
 local file:///var/lib/pkg/repo
-cosmoos https://vkuttyp.github.io/CosmoOS/repo/...
+cosmoos https://ceesafe.github.io/CosmoOS/repo/...
 cosmo$ pkg update
 pkg: index updated: ... packages from ...
 cosmo$ pkg search

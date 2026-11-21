@@ -3985,3 +3985,14 @@ See the [history index](README.md).
     `COSMOOS_MIRROR_TOKEN`. The project site shadows the folder until the
     transfer. The order of the move: `docs/development.md`, "The
     project's addresses".
+- **The project's addresses after the move to CeeSafe (2026-11-21).**
+  - The repository is `CeeSafe/CosmoOS` and its site
+    `https://ceesafe.github.io/CosmoOS/`; the old site is the mirror of
+    #543. `cosmo-release.conf`, `cosmo-install`'s `repos.conf` line,
+    `cosmo-upgrade`'s default, the CI image's name, the scripts, the boot
+    tests and the guides name the new address.
+  - `cosmo-upgrade` moves the old prefix to the new one in
+    `/etc/pkg/repos.conf` and `/etc/cosmo-release.conf` after bringing
+    the root to a release (`userland/system/upgrade_conf.cee`; the text's
+    rewrite is `upgrade_parts.cee`'s, with the boot archive's ustar fields
+    moved there from `cosmo-upgrade.c`; `test_upgrade_parts`).

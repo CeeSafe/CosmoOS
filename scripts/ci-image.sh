@@ -4,7 +4,7 @@
 # not there yet, and print each one's digest reference for the workflow
 # (roadmap M6; docs/development.md, "Continuous integration").
 #
-#   REPO      e.g. ghcr.io/vkuttyp/cosmoos-ci (logged in already)
+#   REPO      e.g. ghcr.io/ceesafe/cosmoos-ci (logged in already)
 #   output    lines `toolchain=REPO@sha256:...` and `litmus=REPO@sha256:...`,
 #             appended to $GITHUB_OUTPUT when it is set
 #

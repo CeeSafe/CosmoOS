@@ -23,7 +23,7 @@ CRT_TAR     := $(PORTS_CACHE)/compiler-rt-$(CRT_VERSION).src.tar.xz
 
 # Each archive's second URL: the copy in this repository's "pinned-sources"
 # release, the same bytes (fetch-pinned.py checks the digest either way).
-PINNED_MIRROR := https://github.com/vkuttyp/CosmoOS/releases/download/pinned-sources
+PINNED_MIRROR := https://github.com/CeeSafe/CosmoOS/releases/download/pinned-sources
 
 # One BusyBox per architecture, shared by the build variants beside
 # $(OUT) (debug, release, chaos, crash...): none of them changes it, and

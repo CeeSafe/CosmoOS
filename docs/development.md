@@ -517,7 +517,7 @@ GitHub-hosted `ubuntu-24.04` (x86-64) runner. Its first job, `image`,
 makes sure the project's toolchain image exists: `ci/Dockerfile` (Debian
 trixie, pinned by digest, with QEMU 10, `libclang-rt-dev` for the
 sanitizers, `qemu-system-arm` and `qemu-efi-aarch64` for the AArch64
-target) is built and pushed to `ghcr.io/vkuttyp/cosmoos-ci` by
+target) is built and pushed to `ghcr.io/ceesafe/cosmoos-ci` by
 `scripts/ci-image.sh` only when the SHA-256 of the Dockerfile and
 `ci/fetch-ceesafec.py` is not already a tag there, and the job outputs the image's digest reference. Every
 other job runs in that image, pulled from this repository's GitHub
@@ -651,7 +651,7 @@ requires the two `SHA256SUMS` to be equal before it publishes.
    the release key, and writes the site: `repo/ARCH/`, `releases/TAG/`
    (the newest three releases kept) and `releases/LATEST`. The site is
    pushed as the one commit of the branch `repo`, which GitHub Pages
-   serves at `https://vkuttyp.github.io/CosmoOS/`. For a pre-release the
+   serves at `https://ceesafe.github.io/CosmoOS/`. For a pre-release the
    job publishes nothing new but signs every `INDEX` again, so every tag
    renews the expiries. Whatever starts it, the job runs `main`'s
    publisher (it checks out `main`): a pre-release may be any head, and
@@ -683,7 +683,7 @@ covers the quiet months between them.
    lightweight one is refused by `scripts/release-tag.sh`), pushed.
 4. When the workflow ends: the release's assets, the site's
    `releases/LATEST` and both indexes' new serial
-   (`https://vkuttyp.github.io/CosmoOS/repo/<arch>/INDEX.90`).
+   (`https://ceesafe.github.io/CosmoOS/repo/<arch>/INDEX.90`).
 
 A release (a tag without a hyphen) must point at a commit on main (job
 `guard`); a pre-release may be any head. The key itself is a secret of
@@ -705,8 +705,8 @@ and trust the release key too.
 
 ### The project's addresses
 
-The repository moves from `vkuttyp/CosmoOS` to the CeeSafe organization
-(the owner's decision, 2026-11-20), and its Pages site from
+The repository moved from `vkuttyp/CosmoOS` to the CeeSafe organization
+on 2026-11-21 (the owner's decision of 2026-11-20), and its Pages site from
 `https://vkuttyp.github.io/CosmoOS/` to `https://ceesafe.github.io/CosmoOS/`.
 GitHub redirects the repository's web and git URLs after a transfer, and
 does not redirect Pages. Every system installed before the move reads
@@ -715,7 +715,7 @@ the old site:
 - the `cosmoos` line `cosmo-install` wrote into `/etc/pkg/repos.conf`,
   which an upgrade keeps, as a file changed on that machine.
 
-So the move goes in this order:
+The move, in order:
 1. The old site is copied to the `CosmoOS/` folder of the owner's user
    site, `vkuttyp/vkuttyp.github.io`, and `repository.yml` keeps it the
    same as the project's site on every publish and re-sign. It needs
@@ -723,13 +723,16 @@ So the move goes in this order:
    fine-grained token with write access to that repository's contents
    alone. While `vkuttyp/CosmoOS` has a project site, the project site
    serves that path and the folder is not read.
-2. The owner transfers the repository. From then on the folder serves the
-   old address, with the same files.
-3. After the transfer: the CI image is pushed to `ghcr.io/ceesafe`; the
-   review apps are installed for the organization; the secrets, the
-   `release` environment and its rules are checked. A release then names
-   the new address everywhere, and its `cosmo-upgrade` rewrites the old
-   `cosmoos` line of `repos.conf`.
+2. The repository was transferred. Since then the folder serves the old
+   address, with the same files, and `ceesafe.github.io/CosmoOS/` the
+   project's site. The environments, their secrets and the `release`
+   rules moved with it. The CI image is `ghcr.io/ceesafe/cosmoos-ci`
+   (`ci-image.sh` builds it under `github.repository_owner`).
+3. A release then names the new address everywhere (`cosmo-release.conf`,
+   `cosmo-install`'s `repos.conf` line, `cosmo-upgrade`'s default), and
+   its `cosmo-upgrade` moves the old prefix to the new one in
+   `/etc/pkg/repos.conf` and `/etc/cosmo-release.conf` after bringing the
+   root to the release (`userland/system/upgrade_conf.cee`).
 4. The mirror is retired once installed systems have upgraded past that
    release.
 
