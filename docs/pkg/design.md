@@ -284,7 +284,8 @@ starts and sshd then takes its place. After `pkg install openssh-server`,
 `svc start sshd` makes the switch without a reboot; `pkg` runs no
 scripts, so it does not do this itself. `pkg remove openssh-server`
 removes `/etc/svc/sshd` with the package, and dropbear serves again after
-the next boot or `svc start dropbear`. Neither `pkg` nor `svc` gains a
+the next boot, or after `svc stop sshd` and `svc start dropbear`: removing
+the package does not stop a running sshd, which keeps port 22. Neither `pkg` nor `svc` gains a
 key for this. `sshd_config` is the package's, written for this system:
 public-key logins only, root by key (as dropbear allows), and the `sftp`
 subsystem `sftp-server` from the base system.

@@ -244,6 +244,28 @@ changed), a reboot to `build v1.1.1` and straight to the login screen,
 no password asked for again, the root checked clean, `pkg update` read
 serial 25, and ssh answered.
 
+**v1.1.2-rc1, v1.1.2-rc2 and v1.1.2, 2026-11-21.** "CosmoOS", running
+v1.1.1, took -rc1 with its own `cosmo-upgrade`, the set served from the
+Mac: boot environment `be-v1.1.1`, 48 files replaced and 2 added on the
+root. It rebooted to `v1.1.2-rc1`, the root checked with 0 findings,
+`--status` was clean, `pkg update && pkg upgrade` read serial 26, and
+`dmesg` held no error but the xhci line above. `openssh-server`
+installed from the rc's own ports repository (copied to the VM as a
+`file://` repository: the raw ports INDEX has no serial, which a network
+repository needs). But `svc start sshd` could not take port 22: dropbear
+lived on after its SIGTERM until a connection woke it, because the kernel
+restarted its `select` (backlog LX-29, fixed in #540). -rc2 on the fix,
+from -rc1 the same way (boot environment `be-v1.1.2-rc1`, 1 file
+replaced), rebooted to `v1.1.2-rc2` with the same clean checks. There
+`svc start sshd` took port 22 within four seconds and no connection: port
+22 answered `SSH-2.0-OpenSSH_10.6`. The owner's RSA key was refused, as
+the notes say (Ed25519 only). Going back to dropbear needs `svc stop sshd`
+before `svc start dropbear`, which v1.1.2's notes did not say (corrected
+here). Then `cosmo-upgrade --fetch v1.1.2` from the Pages repository
+(boot environment `be-v1.1.2-rc2`, no file changed), a reboot to `v1.1.2`,
+the root checked clean, `pkg update` read serial 27, `pkg install nano`
+fetched `nano-9.3.cpk` from Pages and ran, and ssh answered.
+
 The details, and why, are in
 [`docs/audit/2026-10-13-acpi-discovery-report.md`](../audit/2026-10-13-acpi-discovery-report.md)
 and [`docs/audit/2026-10-13-parallels-devices-report.md`](../audit/2026-10-13-parallels-devices-report.md).
