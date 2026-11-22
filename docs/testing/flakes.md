@@ -5136,6 +5136,16 @@ has only the firmware's screen clears after it, five pairs. The PR
 changes the framebuffer console's escapes; the kernel had written its
 last line and reset the machine. The same job passed on the PR's
 previous head (run 43431573649). Rerun.
+**Fifth sighting, 2026-11-21:** CI, main at `e58c09b0` (#545's merge,
+run 44962441864, job 137024153571, `install test (x86_64)`),
+`test-snapshot`'s rollback: `no /etc/rc of the boot after the rollback
+before the deadline`. `boot-rollback-times.log` ends at 6.27 s with
+`reboot: restart through the ACPI reset register (port 0xcf9, value
+0xf)`, and `boot-rollback.log` has only the firmware's screen clears
+after it, five pairs, and no `BdsDxe` of a second boot. #545 changes
+`cosmo-upgrade`, the project's addresses and scripts; the kernel had
+written its last line and reset the machine. Five sightings, all x86-64,
+all a reset inside one QEMU (backlog TEST-21). Rerun.
 
 
 ## ash history: the nested shell stopped, 2026-10-18 and 2026-10-20
