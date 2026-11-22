@@ -84,10 +84,12 @@ The project moved to the CeeSafe organization on 2026-11-21, and the
 site from `https://vkuttyp.github.io/CosmoOS/` to
 `https://ceesafe.github.io/CosmoOS/`. A system installed before then
 names the old address, which keeps serving the same releases and
-packages. Upgrading to v1.1.3 or later moves it: `cosmo-upgrade` rewrites
-the old address in `/etc/pkg/repos.conf` and `/etc/cosmo-release.conf`
-and says so (`... the project's address moved to
-https://ceesafe.github.io/CosmoOS/`).
+packages. v1.1.3's `cosmo-upgrade` moves it: it rewrites the old address
+in `/etc/pkg/repos.conf` and `/etc/cosmo-release.conf` and says so (`...
+the project's address moved to https://ceesafe.github.io/CosmoOS/`). From
+v1.1.2 run `cosmo-upgrade --fetch v1.1.3` twice before rebooting: the
+first run is v1.1.2's own `cosmo-upgrade`, which installs the new one;
+the second is the new one, which moves the address.
 
 ```text
 cosmo$ cosmo-upgrade --check
