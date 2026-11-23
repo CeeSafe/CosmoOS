@@ -324,8 +324,13 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    # A job's own permissions replace the workflow's: packages: read is what
+    # pulls the toolchain image above when the package is not public (it
+    # moved to ghcr.io/ceesafe with the repository; v1.1.3-rc1's publish
+    # failed with "manifest unknown" without it).
     permissions:
       contents: write
+      packages: read
     timeout-minutes: 15
     steps:
       - name: Check out the tag
