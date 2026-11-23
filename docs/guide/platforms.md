@@ -266,6 +266,23 @@ here). Then `cosmo-upgrade --fetch v1.1.2` from the Pages repository
 the root checked clean, `pkg update` read serial 27, `pkg install nano`
 fetched `nano-9.3.cpk` from Pages and ran, and ssh answered.
 
+**v1.1.3-rc1 and v1.1.3, 2026-11-22 and 2026-11-23.** "CosmoOS", running
+v1.1.2 with `repos.conf` and `cosmo-release.conf` naming the old address
+(`vkuttyp.github.io`), took -rc1 with its own `cosmo-upgrade`, the set
+served from the Mac: boot environment `be-v1.1.2`, 4 files replaced.
+`cosmo-release.conf`, unchanged since the install, was replaced and named
+`ceesafe.github.io`; `repos.conf` was kept, still naming the old address,
+because v1.1.2's `cosmo-upgrade` has no move. A second `cosmo-upgrade`,
+the new one, found the set already current, finished, and moved it
+(`/etc/pkg/repos.conf: the project's address moved to
+https://ceesafe.github.io/CosmoOS/`). It rebooted to `v1.1.3-rc1`;
+`--status` was clean, `pkg update` read serial 29 from `ceesafe.github.io`,
+`cosmo-upgrade --check` asked the new address, `dmesg` held no error but
+the xhci line, and ssh answered. Then `cosmo-upgrade --fetch v1.1.3` from
+the Pages repository (boot environment `be-v1.1.3-rc1`, no file
+changed), a reboot to `v1.1.3`, `pkg update` read serial 30, and ssh
+answered.
+
 The details, and why, are in
 [`docs/audit/2026-10-13-acpi-discovery-report.md`](../audit/2026-10-13-acpi-discovery-report.md)
 and [`docs/audit/2026-10-13-parallels-devices-report.md`](../audit/2026-10-13-parallels-devices-report.md).
